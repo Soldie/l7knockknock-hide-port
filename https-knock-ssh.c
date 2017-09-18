@@ -11,13 +11,12 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <errno.h>
 
-#define EXT_PORT 8444
-#define SSH_PORT 2200
-#define SSL_PORT 9443
-#define MAX_RECV_BUF 2<<20
+#include <argp.h>
+
 
 #ifdef __GNUC__
 #  define UNUSED(x) UNUSED_ ## x __attribute__((__unused__))
@@ -25,6 +24,24 @@
 #  define UNUSED(x) UNUSED_ ## x
 #endif
 
+static struct config {
+    uint32_t external_port;
+    uint32_t https_port;
+    uint32_t ssh_port;
+    uint64_t max_recv_buffer;
+    struct timeval default_timeout;
+    struct timeval knock_timeout;
+    bool verbose;
+    char* knock_value;
+    size_t knock_size;
+} config;
+
+#define EXT_PORT_DEFAULT 443
+#define SSH_PORT_DEFAULT 22
+#define HTTPS_PORT_DEFAULT 8443
+#define MAX_RECV_BUF_DEFAULT 2<<20
+#define DEFAULT_TIMEOUT_DEFAULT 30
+#define KNOCK_TIMEOUT_DEFAULT 2
 
 /**
  * Every new connection goes through the following state machine/life cycle:
@@ -65,14 +82,10 @@
  *      if there was any other error, we also close our connection.
  *   
  */
-
-static struct timeval TIMEOUT = { 60 * 15,  0 };
-static struct timeval SSH_TIMEOUT = { 3,  0 }; 
-
 struct otherside {
 	struct bufferevent* bev;
 	struct otherside* pair;
-	uint8_t other_timedout;
+	bool other_timedout;
 };
 
 static void set_tcp_no_delay(evutil_socket_t fd)
@@ -88,7 +101,7 @@ static void set_tcp_no_delay(evutil_socket_t fd)
 static void pipe_read(struct bufferevent *bev, void *ctx) {
 	struct otherside* con = ctx;
 	if (con->bev) {
-		con->pair->other_timedout = 0;
+		con->pair->other_timedout = false;
 		bufferevent_read_buffer(bev, bufferevent_get_output(con->bev));
 	}
 	else {
@@ -103,7 +116,7 @@ static void pipe_error(struct bufferevent *bev, short error, void *ctx)
 		/* re-enable reading and writing to detect future timeouts */
         bufferevent_enable(bev, EV_READ);
 		if (con->bev) {
-			con->pair->other_timedout = 1;
+			con->pair->other_timedout = true;
 			if (!con->other_timedout) {
 				/* 
 				 * the other side didn't time-out yet, let's just flag our timeout
@@ -138,10 +151,10 @@ static struct otherside** create_contexts(struct bufferevent *forward, struct bu
 	result[1] = malloc(sizeof(struct otherside));
 	result[0]->bev = backward;
 	result[0]->pair = result[1];
-	result[0]->other_timedout = 0;
+	result[0]->other_timedout = false;
 	result[1]->bev = forward;
 	result[1]->pair = result[0];
-	result[1]->other_timedout = 0;
+	result[1]->other_timedout = false;
 	return result;
 }
 
@@ -160,11 +173,11 @@ static void back_connection(struct bufferevent *bev, short events, void *ctx)
         bufferevent_setcb(other_side, pipe_read, NULL, pipe_error, ctxs[0]);
 
         bufferevent_setcb(bev, pipe_read, NULL, pipe_error, ctxs[1]);
-        bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF);
+        bufferevent_setwatermark(bev, EV_READ, 0, config.max_recv_buffer);
         bufferevent_enable(bev, EV_READ);
 
-		bufferevent_set_timeouts(bev, &TIMEOUT, NULL);
-		bufferevent_set_timeouts(other_side, &TIMEOUT, NULL);
+		bufferevent_set_timeouts(bev, &(config.default_timeout), NULL);
+		bufferevent_set_timeouts(other_side, &(config.default_timeout), NULL);
 		free(ctxs);
     } else if (events & BEV_EVENT_ERROR) {
 		bufferevent_free(bev);
@@ -203,20 +216,17 @@ static void create_pipe(struct event_base *base, struct bufferevent *other_side,
 static void initial_read(struct bufferevent *bev, void *ctx) {
  	struct event_base *base = ctx;
     struct evbuffer *input = bufferevent_get_input(bev);
-	uint32_t port = SSL_PORT;
+	uint32_t port = config.https_port;
 
 	/* lets peek at the first byte */
     struct evbuffer_iovec v[1];
-	if (evbuffer_peek(input, 1, NULL, v, 1) == 1) {
-
-		uint8_t header = *((uint8_t*)(v[0].iov_base));
-		printf("Got header: %d %x\n", header, header);
-		if (header == 42) {
-			port = SSH_PORT;
-            evbuffer_drain(input, 1);
+	if (evbuffer_peek(input, config.knock_size, NULL, v, 1) == 1 && v[0].iov_len >= config.knock_size) {
+        if (memcmp(config.knock_value, v[0].iov_base, config.knock_size) == 0) {
+			port = config.ssh_port;
+            evbuffer_drain(input, config.knock_size);
 		}
 	}
-    bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF);
+    bufferevent_setwatermark(bev, EV_READ, 0, config.max_recv_buffer);
     bufferevent_disable(bev, EV_READ);
 	bufferevent_set_timeouts(bev, NULL, NULL);
     bufferevent_setcb(bev, NULL, NULL, pipe_error, NULL);
@@ -226,7 +236,9 @@ static void initial_read(struct bufferevent *bev, void *ctx) {
 static void initial_error(struct bufferevent *bev, short error, void *ctx) {
     if (error & BEV_EVENT_TIMEOUT) {
 		/* nothing received so must be a ssh client */
-		printf("Nothing received, timeout, assuming https\n");
+        if (config.verbose) {
+		    printf("Nothing received, timeout, assuming https\n");
+        }
 		initial_read(bev, ctx);
 		return;
     }
@@ -250,16 +262,98 @@ static void initial_accept(evutil_socket_t listener, short UNUSED(event), void *
         evutil_make_socket_nonblocking(fd);
         bev = bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE);
         bufferevent_setcb(bev, initial_read, NULL, initial_error, base);
-        bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF);
+        bufferevent_setwatermark(bev, EV_READ, 0, config.max_recv_buffer);
         bufferevent_enable(bev, EV_READ);
-		bufferevent_set_timeouts(bev, &SSH_TIMEOUT, NULL);
+		bufferevent_set_timeouts(bev, &(config.knock_timeout), NULL);
     }
 }
 
 
-int main(int UNUSED(c), char **v)
+
+const char *argp_program_version = "https-knock-ssh 0.1";
+const char *argp_program_bug_address = "<davy.landman@gmail.com>";
+static const char *doc = "https-knock-ssh -- a protocol knocker to unlock a ssh service hidden behind a https server";
+
+// non optional params
+static const char *args_doc = "KNOCK_KNOCK_STRING";
+
+// optional params
+// {NAME, KEY, ARG, FLAGS, DOC}.
+static struct argp_option options[] =
 {
-	(void)v;
+    {"verbose", 'v', 0, OPTION_ARG_OPTIONAL, "Produce verbose output", -1},
+    {"listenPort", 'p', 0, 0, "Port to listen on for new connections, default: EXT_PORT_DEFAULT", 1},
+    {"httpsPort", 't', 0, 0, "Port to forward HTTPS traffic to, default: HTTPS_PORT_DEFAULT", 0},
+    {"sshPort", 's', 0, 0, "Port to forward SSH traffic to, default: SSH_PORT_DEFAULT", 0},
+    {"bufferSize", 'b', 0, 0, "Maximum proxy buffer size, default: MAX_RECV_BUF_DEFAULT", 0},
+    {"proxyTimeout", 'o', 0, 0, "Seconds before timeout is assumed and connection with HTTPS or SSH is closed, default: DEFAULT_TIMEOUT_DEFAULT", 0},
+    {"knockTimeout", 'k', 0, 0, "Seconds after which we assume no knock-knock will occur, default: KNOCK_TIMEOUT_DEFAULT", 0},
+    {0,0,0,0,0,0}
+};
+
+static void fill_defaults() {
+    config.external_port = EXT_PORT_DEFAULT;
+    config.https_port = HTTPS_PORT_DEFAULT;
+    config.ssh_port = SSH_PORT_DEFAULT;
+    config.max_recv_buffer = MAX_RECV_BUF_DEFAULT;
+    config.default_timeout.tv_sec = DEFAULT_TIMEOUT_DEFAULT;
+    config.knock_timeout.tv_sec = KNOCK_TIMEOUT_DEFAULT;
+    config.verbose = false;
+    config.knock_value = NULL;
+    config.knock_size = 0;
+}
+
+
+static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+    switch(key) {
+        case 'v':
+            config.verbose = true;
+            break;
+        case 'p':
+            config.external_port = atoi(arg);
+            break;
+        case 't':
+            config.https_port = atoi(arg);
+            break;
+        case 's':
+            config.ssh_port = atoi(arg);
+            break;
+        case 'b':
+            config.max_recv_buffer = strtoul(arg, &arg, 10);
+            break;
+        case 'o':
+            config.default_timeout.tv_sec = atoi(arg);
+            break;
+        case 'k':
+            config.knock_timeout.tv_sec = atoi(arg);
+            break;
+        case ARGP_KEY_ARG:
+            if (config.knock_size > 0) {
+                argp_usage(state);
+                return 1;
+            }
+            config.knock_value = arg;
+            config.knock_size = strlen(arg);
+            break;
+        case ARGP_KEY_END:
+            if (config.knock_size == 0) {
+                argp_usage (state);
+                return 1;
+            }
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
+    }
+    return 0;
+}
+
+
+int main(int argc, char **argv) {
+    fill_defaults();
+
+    struct argp argp = {options, parse_opt, args_doc, doc, NULL, NULL, NULL};
+    argp_parse (&argp, argc, argv, 0, 0, NULL);
+
     setvbuf(stdout, NULL, _IONBF, 0);
 
     evutil_socket_t listener;
@@ -273,7 +367,7 @@ int main(int UNUSED(c), char **v)
 
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = 0;
-    sin.sin_port = htons(EXT_PORT);
+    sin.sin_port = htons(config.external_port);
 
     listener = socket(AF_INET, SOCK_STREAM, 0);
     evutil_make_socket_nonblocking(listener);
