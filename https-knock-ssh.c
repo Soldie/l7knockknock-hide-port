@@ -281,13 +281,13 @@ static const char *args_doc = "KNOCK_KNOCK_STRING";
 // {NAME, KEY, ARG, FLAGS, DOC}.
 static struct argp_option options[] =
 {
-    {"verbose", 'v', 0, OPTION_ARG_OPTIONAL, "Produce verbose output", -1},
-    {"listenPort", 'p', 0, 0, "Port to listen on for new connections, default: EXT_PORT_DEFAULT", 1},
-    {"httpsPort", 't', 0, 0, "Port to forward HTTPS traffic to, default: HTTPS_PORT_DEFAULT", 0},
-    {"sshPort", 's', 0, 0, "Port to forward SSH traffic to, default: SSH_PORT_DEFAULT", 0},
-    {"bufferSize", 'b', 0, 0, "Maximum proxy buffer size, default: MAX_RECV_BUF_DEFAULT", 0},
-    {"proxyTimeout", 'o', 0, 0, "Seconds before timeout is assumed and connection with HTTPS or SSH is closed, default: DEFAULT_TIMEOUT_DEFAULT", 0},
-    {"knockTimeout", 'k', 0, 0, "Seconds after which we assume no knock-knock will occur, default: KNOCK_TIMEOUT_DEFAULT", 0},
+    {"verbose", 'v', 0, 0, "Produce verbose output", -1},
+    {"listenPort", 'p', "port", 0, "Port to listen on for new connections, default: EXT_PORT_DEFAULT", 1},
+    {"httpsPort", 't', "port", 0, "Port to forward HTTPS traffic to, default: HTTPS_PORT_DEFAULT", 0},
+    {"sshPort", 's', "port", 0, "Port to forward SSH traffic to, default: SSH_PORT_DEFAULT", 0},
+    {"bufferSize", 'b', "size", 0, "Maximum proxy buffer size (in bytes), default: MAX_RECV_BUF_DEFAULT", 2},
+    {"proxyTimeout", 'o', "seconds", 0, "Seconds before timeout is assumed and connection with HTTPS or SSH is closed, default: DEFAULT_TIMEOUT_DEFAULT", 0},
+    {"knockTimeout", 'k', "seconds", 0, "Seconds after which we assume no knock-knock will occur, default: KNOCK_TIMEOUT_DEFAULT", 0},
     {0,0,0,0,0,0}
 };
 
