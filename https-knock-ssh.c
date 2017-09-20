@@ -303,6 +303,20 @@ static void fill_defaults() {
     config.knock_size = 0;
 }
 
+#define PARSE_NUMBER(type, result, MIN, MAX, source, error, state) {\
+    errno=0; \
+    char* ___endPos; \
+    unsigned long long ___res = strtoull(source, &___endPos, 10); \
+    if ((errno != 0 && errno != ERANGE) || *___endPos != '\0') { \
+        fprintf(stderr, "%s: %s\n", error, source); \
+        argp_usage(state); \
+    } \
+    if (___res < (unsigned long long)(MIN) || ___res > (unsigned long long)(MAX)) {\
+        fprintf(stderr, "%s: %llu (not in range %llu..%llu)\n", error, ___res, (unsigned long long)(MIN), (unsigned long long)(MAX)); \
+        argp_usage(state); \
+    }\
+    result = (type)___res;\
+}
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
     switch(key) {
@@ -310,22 +324,22 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
             config.verbose = true;
             break;
         case 'p':
-            config.external_port = atoi(arg);
+            PARSE_NUMBER(uint32_t, config.external_port, 1, 65536, arg, "Invalid port number", state)
             break;
         case 't':
-            config.https_port = atoi(arg);
+            PARSE_NUMBER(uint32_t, config.https_port, 1, 65536, arg, "Invalid port number", state)
             break;
         case 's':
-            config.ssh_port = atoi(arg);
+            PARSE_NUMBER(uint32_t, config.ssh_port, 1, 65536, arg, "Invalid port number", state)
             break;
         case 'b':
-            config.max_recv_buffer = strtoul(arg, &arg, 10);
+            PARSE_NUMBER(size_t, config.max_recv_buffer, 1, 1<<31, arg, "Invalid buffer size", state)
             break;
         case 'o':
-            config.default_timeout.tv_sec = atoi(arg);
+            PARSE_NUMBER(uint32_t, config.default_timeout.tv_sec, 1, 600, arg, "Invalid amount of seconds", state)
             break;
         case 'k':
-            config.knock_timeout.tv_sec = atoi(arg);
+            PARSE_NUMBER(uint32_t, config.knock_timeout.tv_sec, 1, 5, arg, "Invalid amount of seconds", state)
             break;
         case ARGP_KEY_ARG:
             if (config.knock_size > 0) {
