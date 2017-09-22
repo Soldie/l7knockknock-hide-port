@@ -1,6 +1,7 @@
 #ifndef KNOCK_COMMON_H
 #define KNOCK_COMMON_H
 #include <stdbool.h>
+#include <stdint.h>
 struct config {
     uint32_t external_port;
     uint32_t normal_port;
