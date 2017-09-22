@@ -26,7 +26,7 @@
 
 static struct config {
     uint32_t external_port;
-    uint32_t https_port;
+    uint32_t normal_port;
     uint32_t ssh_port;
     uint64_t max_recv_buffer;
     struct timeval default_timeout;
@@ -38,7 +38,7 @@ static struct config {
 
 #define EXT_PORT_DEFAULT 443
 #define SSH_PORT_DEFAULT 22
-#define HTTPS_PORT_DEFAULT 8443
+#define normal_port_DEFAULT 8443
 #define MAX_RECV_BUF_DEFAULT 2<<20
 #define DEFAULT_TIMEOUT_DEFAULT 30
 #define KNOCK_TIMEOUT_DEFAULT 2
@@ -216,7 +216,7 @@ static void create_pipe(struct event_base *base, struct bufferevent *other_side,
 static void initial_read(struct bufferevent *bev, void *ctx) {
  	struct event_base *base = ctx;
     struct evbuffer *input = bufferevent_get_input(bev);
-	uint32_t port = config.https_port;
+	uint32_t port = config.normal_port;
 
 	/* lets peek at the first byte */
     struct evbuffer_iovec v[1];
@@ -270,9 +270,9 @@ static void initial_accept(evutil_socket_t listener, short UNUSED(event), void *
 
 
 
-const char *argp_program_version = "https-knock-ssh 0.1";
+const char *argp_program_version = "knock-ssh 0.1";
 const char *argp_program_bug_address = "<davy.landman@gmail.com>";
-static const char *doc = "https-knock-ssh -- a protocol knocker to unlock a ssh service hidden behind a https server";
+static const char *doc = "knock-ssh -- a protocol knocker to unlock a ssh service hidden behind another port";
 
 // non optional params
 static const char *args_doc = "KNOCK_KNOCK_STRING";
@@ -283,7 +283,7 @@ static struct argp_option options[] =
 {
     {"verbose", 'v', 0, 0, "Produce verbose output", -1},
     {"listenPort", 'p', "port", 0, "Port to listen on for new connections, default: EXT_PORT_DEFAULT", 1},
-    {"httpsPort", 't', "port", 0, "Port to forward HTTPS traffic to, default: HTTPS_PORT_DEFAULT", 0},
+    {"normalPort", 'n', "port", 0, "Port to forward HTTPS traffic to, default: normal_port_DEFAULT", 0},
     {"sshPort", 's', "port", 0, "Port to forward SSH traffic to, default: SSH_PORT_DEFAULT", 0},
     {"bufferSize", 'b', "size", 0, "Maximum proxy buffer size (in bytes), default: MAX_RECV_BUF_DEFAULT", 2},
     {"proxyTimeout", 'o', "seconds", 0, "Seconds before timeout is assumed and connection with HTTPS or SSH is closed, default: DEFAULT_TIMEOUT_DEFAULT", 0},
@@ -293,7 +293,7 @@ static struct argp_option options[] =
 
 static void fill_defaults() {
     config.external_port = EXT_PORT_DEFAULT;
-    config.https_port = HTTPS_PORT_DEFAULT;
+    config.normal_port = normal_port_DEFAULT;
     config.ssh_port = SSH_PORT_DEFAULT;
     config.max_recv_buffer = MAX_RECV_BUF_DEFAULT;
     config.default_timeout.tv_sec = DEFAULT_TIMEOUT_DEFAULT;
@@ -326,8 +326,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
         case 'p':
             PARSE_NUMBER(uint32_t, config.external_port, 1, 65536, arg, "Invalid port number", state)
             break;
-        case 't':
-            PARSE_NUMBER(uint32_t, config.https_port, 1, 65536, arg, "Invalid port number", state)
+        case 'n':
+            PARSE_NUMBER(uint32_t, config.normal_port, 1, 65536, arg, "Invalid port number", state)
             break;
         case 's':
             PARSE_NUMBER(uint32_t, config.ssh_port, 1, 65536, arg, "Invalid port number", state)
