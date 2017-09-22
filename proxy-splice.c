@@ -71,6 +71,9 @@ static void close_and_free_proxy(struct proxy* info) {
 }
 
 static int handle_timeout(struct proxy* info) {
+    if (!info) {
+        return 0;
+    }
     if (info->other) {
         // fully established connection
         info->other->other_timed_out = true;
@@ -94,6 +97,7 @@ static void do_proxy(struct proxy* proxy) {
         if (bytes_read == -1u) {
             if (errno != EAGAIN) {
                 general_error(proxy);
+                perror("Connection error?");
             }
             return;
         }
@@ -107,8 +111,12 @@ static void do_proxy(struct proxy* proxy) {
             while (written < bytes_read) {
                 size_t current_written = write(proxy->other->socket, _buffer + written, bytes_read - written);
                 if (current_written == 0 || current_written == -1u) {
-                    general_error(proxy);
-                    return;
+                    if (errno != EAGAIN) {
+                        general_error(proxy);
+                        perror("Connection error?");
+                        return;
+                    }
+                    current_written = 0;
                 }
                 written += current_written;
             }
@@ -201,6 +209,9 @@ static void handle_back_connection_finished(struct proxy* proxy) {
     ev.events = EPOLLIN | EPOLLET;
     ev.data.ptr = proxy;
     epoll_ctl(proxy->epoll_queue, EPOLL_CTL_MOD, proxy->socket, &ev);
+
+    // process the remaining stuff in the read buffer
+    do_proxy(proxy->other);
 }
 
 static void process_other_events(struct epoll_event *ev) {
@@ -221,27 +232,30 @@ static void process_other_events(struct epoll_event *ev) {
         }
     }
     else if (ev->events & EPOLLOUT) {
-        if (info->welcome_bytes) {
+        if (info->welcome_size != 0) {
             handle_back_connection_finished(info);
         }
         else {
-            perror("Not sure what to do with this event");
+            fprintf(stderr, "Not sure what to do with this event\n");
         }
     }
     else {
-        perror("Unsupported event?");
+        fprintf(stderr, "Unsupported event?\n");
     }
 }
 
 static int initialize(struct sockaddr_in *listen_address, int* epoll_queue, int* listen_socket) {
     *listen_socket = socket(AF_INET, SOCK_STREAM, 0);
-
+    if (*listen_socket < 0) {
+		perror("cannot open socket");
+        return -1;
+    }
     int one = 1;
 	if (setsockopt(*listen_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int)) < 0) {
 		perror("cannot set SO_REUSEADDR");
         return -1;
     }
-	if (bind(*listen_socket,(struct sockaddr *)listen_address, sizeof(struct sockaddr_in)) < 0) {
+	if (bind(*listen_socket, (struct sockaddr *)listen_address, sizeof(struct sockaddr_in)) < 0) {
 		perror("cannot bind");
         return -1;
     }
@@ -251,7 +265,7 @@ static int initialize(struct sockaddr_in *listen_address, int* epoll_queue, int*
     }
 	non_block(*listen_socket);
 
-    *epoll_queue = epoll_create1(FD_CLOEXEC);
+    *epoll_queue = epoll_create1(EPOLL_CLOEXEC);
     if (*epoll_queue < 0) {
         perror("cannot create epoll queue");
         return -1;
@@ -295,6 +309,7 @@ int start(struct config* _config) {
                         perror("cannot accept new connection");
                         return -1;
                     }
+                    non_block(conn_sock);
 
                     struct proxy* data = malloc(sizeof(struct proxy));
                     data->epoll_queue = epoll_queue;
