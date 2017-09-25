@@ -27,24 +27,24 @@ struct proxy {
     struct proxy* other;
     bool other_timed_out;
     bool closed;
-    
-    void* buffer;
+
+    uint8_t* buffer;
     size_t buffer_size;
 
-    void* buffer_filled;
-    void* buffer_flushed;
+    uint8_t* buffer_filled;
+    uint8_t* buffer_flushed;
 };
 
 static void non_block(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
-	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
 static int add_to_queue(int epoll_queue, int socket, void* data) {
     struct epoll_event ev;
     ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
     ev.data.ptr = data;
-	if (epoll_ctl(epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
+    if (epoll_ctl(epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
         perror("cannot connect epoll to just created socket");
         return -1;
     }
@@ -86,8 +86,8 @@ static void handle_timeout(struct proxy* info) {
     close_and_free_proxy(info);
 }
 
-#define CHECK_ASYNC_RESULTS(__result, __proxy) { \ \
-    if (__result == -1u && errno == EAGAIN) { \ // nothing left to read, so try again later
+#define CHECK_ASYNC_RESULTS(__result, __proxy) { \
+    if (__result == -1u && errno == EAGAIN) { \
         return; \
     } \
     else if (__result == -1u) { \
@@ -95,11 +95,11 @@ static void handle_timeout(struct proxy* info) {
         perror("Connection error?"); \
         return; \
     } \
-    else if (__result == 0) { \ // connection closed
+    else if (__result == 0) { \
         close_and_free_proxy(__proxy); \
         return; \
     } \
-} \
+}
 
 
 static void do_proxy(struct proxy* proxy) {
@@ -125,8 +125,7 @@ static void do_proxy(struct proxy* proxy) {
     /*
      * It could be that the read or the write side has more to produce/consume, and we won't get a new event for that, so while either one was fully flushed, we try again
      */
-    } while (full_flush || full_buffer); 
-    
+    } while (full_flush || full_buffer);
 }
 
 static int create_connection(int port) {
@@ -135,7 +134,7 @@ static int create_connection(int port) {
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = htonl(0x7f000001); /* 127.0.0.1 */
-    sin.sin_port = htons(port); 
+    sin.sin_port = htons(port);
 
     int new_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (new_socket < 0) {
@@ -157,10 +156,10 @@ static void handle_new_data(struct proxy* proxy) {
 
     proxy->buffer_flushed = proxy->buffer;
     proxy->buffer_filled = proxy->buffer + bytes_read;
-	int port = config->normal_port;
+    int port = config->normal_port;
     if (bytes_read >= config->knock_size) {
         if (memcmp(config->knock_value, proxy->buffer, config->knock_size) == 0) {
-			port = config->ssh_port;
+            port = config->ssh_port;
             proxy->buffer_flushed += config->knock_size; // skip the first knock-bytes
         }
     }
@@ -210,23 +209,23 @@ static void process_other_events(struct epoll_event *ev) {
 static int initialize(struct sockaddr_in *listen_address, int* epoll_queue, int* listen_socket) {
     *listen_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (*listen_socket < 0) {
-		perror("cannot open socket");
+        perror("cannot open socket");
         return -1;
     }
     int one = 1;
-	if (setsockopt(*listen_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int)) < 0) {
-		perror("cannot set SO_REUSEADDR");
+    if (setsockopt(*listen_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int)) < 0) {
+        perror("cannot set SO_REUSEADDR");
         return -1;
     }
-	if (bind(*listen_socket, (struct sockaddr *)listen_address, sizeof(struct sockaddr_in)) < 0) {
-		perror("cannot bind");
+    if (bind(*listen_socket, (struct sockaddr *)listen_address, sizeof(struct sockaddr_in)) < 0) {
+        perror("cannot bind");
         return -1;
     }
-	if (listen(*listen_socket, 20) < 0) {
-		perror("cannot start listening");
+    if (listen(*listen_socket, 20) < 0) {
+        perror("cannot start listening");
         return -1;
     }
-	non_block(*listen_socket);
+    non_block(*listen_socket);
 
     *epoll_queue = epoll_create1(EPOLL_CLOEXEC);
     if (*epoll_queue < 0) {
@@ -240,7 +239,6 @@ static int initialize(struct sockaddr_in *listen_address, int* epoll_queue, int*
 
 int start(struct config* _config) {
     config = _config;
-    _buffer = malloc(config->max_recv_buffer * sizeof(uint8_t));
     setvbuf(stdout, NULL, _IONBF, 0);
 
     struct sockaddr_in sin;
@@ -279,7 +277,9 @@ int start(struct config* _config) {
                     data->socket = conn_sock;
                     data->other = NULL;
                     data->other_timed_out = false;
-                    data->welcome_size = 0;
+                    data->buffer = malloc(config->max_recv_buffer);
+                    data->buffer_size = config->max_recv_buffer;
+                    data->buffer_flushed = data->buffer_filled = NULL;
                     if (add_to_queue(epoll_queue, conn_sock, data) != 0) {
                         close(conn_sock);
                         free(data);
