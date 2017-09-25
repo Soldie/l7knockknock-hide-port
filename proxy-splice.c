@@ -29,7 +29,7 @@ struct proxy {
     bool closed;
     
     void* buffer;
-    void* buffer_end;
+    size_t buffer_size;
 
     void* buffer_filled;
     void* buffer_flushed;
@@ -57,7 +57,6 @@ static void close_and_delete(struct proxy* this) {
         close(this->socket);
         this->closed = true;
     }
-
 }
 
 static void close_and_free_proxy(struct proxy* info) {
@@ -73,85 +72,64 @@ static void close_and_free_proxy(struct proxy* info) {
     free(info);
 }
 
-static int handle_timeout(struct proxy* info) {
+static void handle_timeout(struct proxy* info) {
     if (!info) {
-        return 0;
+        return;
     }
     if (info->other) {
         // fully established connection
         info->other->other_timed_out = true;
         if (!info->other_timed_out) {
-            return 0; // the other didn't time out yet so lets wait for that
+            return; // the other didn't time out yet so lets wait for that
         }
     }
     close_and_free_proxy(info);
-    return 0;
 }
 
-static void general_error(struct proxy* info) {
-    close_and_free_proxy(info);
-}
+#define CHECK_ASYNC_RESULTS(__result, __proxy) { \ \
+    if (__result == -1u && errno == EAGAIN) { \ // nothing left to read, so try again later
+        return; \
+    } \
+    else if (__result == -1u) { \
+        close_and_free_proxy(__proxy); \
+        perror("Connection error?"); \
+        return; \
+    } \
+    else if (__result == 0) { \ // connection closed
+        close_and_free_proxy(__proxy); \
+        return; \
+    } \
+} \
 
 
-static uint8_t* _buffer;
 static void do_proxy(struct proxy* proxy) {
-    for (;;) {
-        size_t bytes_read = read(proxy->socket, _buffer, config->max_recv_buffer);
-        if (bytes_read == -1u) {
-            if (errno != EAGAIN) {
-                general_error(proxy);
-                perror("Connection error?");
-            }
-            return;
+    bool full_buffer = false;
+    bool full_flush = false;
+    do {
+        if (proxy->buffer_filled == proxy->buffer_flushed) {
+            // buffer has been send to other side, so we can refill it
+            size_t bytes_read = read(proxy->socket, proxy->buffer, proxy->buffer_size);
+            CHECK_ASYNC_RESULTS(bytes_read, proxy);
+
+            full_buffer = bytes_read == proxy->buffer_size;
+            proxy->buffer_flushed = proxy->buffer;
+            proxy->buffer_filled = proxy->buffer + bytes_read;
         }
-        else if (bytes_read == 0) {
-            // connection closed
-            general_error(proxy);
-            return;
-        }
-        else {
-            size_t written = 0;
-            while (written < bytes_read) {
-                size_t current_written = write(proxy->other->socket, _buffer + written, bytes_read - written);
-                if (current_written == 0 || current_written == -1u) {
-                    if (errno != EAGAIN) {
-                        general_error(proxy);
-                        perror("Connection error?");
-                        return;
-                    }
-                    current_written = 0;
-                }
-                written += current_written;
-            }
-        }
-    }
+
+        size_t to_write = proxy->buffer_filled - proxy->buffer_flushed;
+        size_t bytes_written = write(proxy->other->socket, proxy->buffer_flushed, to_write);
+        CHECK_ASYNC_RESULTS(bytes_written, proxy);
+
+        proxy->buffer_filled += bytes_written;
+        full_flush = proxy->buffer_filled == proxy->buffer_flushed;
+    /*
+     * It could be that the read or the write side has more to produce/consume, and we won't get a new event for that, so while either one was fully flushed, we try again
+     */
+    } while (full_flush || full_buffer); 
+    
 }
 
-static void handle_new_data(struct proxy* proxy) {
-    size_t bytes_read = read(proxy->socket, _buffer, config->max_recv_buffer);
-    if (bytes_read == -1u) {
-        if (errno != EAGAIN) {
-            general_error(proxy);
-            return;
-        }
-        return;
-    }
-    else if (bytes_read == 0) {
-        // connection closed
-        general_error(proxy);
-        return;
-    }
-
-    size_t start_pos = 0;
-	uint32_t port = config->normal_port;
-    if (bytes_read >= config->knock_size) {
-        if (memcmp(config->knock_value, _buffer, config->knock_size) == 0) {
-			port = config->ssh_port;
-            start_pos = config->knock_size;
-            bytes_read -= config->knock_size;
-        }
-    }
-
+static int create_connection(int port) {
     struct sockaddr_in sin;
 
     memset(&sin, 0, sizeof(sin));
@@ -159,17 +137,36 @@ static void handle_new_data(struct proxy* proxy) {
     sin.sin_addr.s_addr = htonl(0x7f000001); /* 127.0.0.1 */
     sin.sin_port = htons(port); 
 
-    int back_proxy_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (back_proxy_socket < 0) {
-        general_error(proxy);
-        return;
+    int new_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (new_socket < 0) {
+        return -1;
     }
-    non_block(back_proxy_socket);
-    int res = connect(back_proxy_socket, (struct sockaddr *)(&sin), sizeof(struct sockaddr_in));
+    non_block(new_socket);
+    int res = connect(new_socket, (struct sockaddr *)(&sin), sizeof(struct sockaddr_in));
     if (res < 0 && errno != EINPROGRESS) {
-        perror("Error connection to backend");
-        general_error(proxy);
-        close(back_proxy_socket);
+        perror("Error opening connection to back-end");
+        close(new_socket);
+        return -1;
+    }
+    return new_socket;
+}
+
+static void handle_new_data(struct proxy* proxy) {
+    size_t bytes_read = read(proxy->socket, proxy->buffer, proxy->buffer_size);
+    CHECK_ASYNC_RESULTS(bytes_read, proxy);
+
+    proxy->buffer_flushed = proxy->buffer;
+    proxy->buffer_filled = proxy->buffer + bytes_read;
+	int port = config->normal_port;
+    if (bytes_read >= config->knock_size) {
+        if (memcmp(config->knock_value, proxy->buffer, config->knock_size) == 0) {
+			port = config->ssh_port;
+            proxy->buffer_flushed += config->knock_size; // skip the first knock-bytes
+        }
+    }
+    int back_proxy_socket = create_connection(port);
+    if (back_proxy_socket < 0) {
+        close_and_free_proxy(proxy);
         return;
     }
 
@@ -179,71 +176,34 @@ static void handle_new_data(struct proxy* proxy) {
     back_proxy->other = proxy;
     proxy->other = back_proxy;
     back_proxy->other_timed_out = false;
-    back_proxy->welcome_size = (bytes_read - start_pos) * sizeof(uint8_t);
-    back_proxy->welcome_bytes = malloc(back_proxy->welcome_size);
-    memcpy(_buffer + start_pos, back_proxy->welcome_bytes, back_proxy->welcome_size);
+    back_proxy->buffer = malloc(config->max_recv_buffer);
+    back_proxy->buffer_size = config->max_recv_buffer;
+    back_proxy->buffer_flushed = back_proxy->buffer_filled = NULL;
 
-    if (add_to_queue(proxy->epoll_queue, back_proxy_socket, true, back_proxy) != 0) {
-        general_error(proxy);
+    if (add_to_queue(proxy->epoll_queue, back_proxy_socket, back_proxy) != 0) {
+        close_and_free_proxy(proxy);
         return;
     }
-}
-
-static void handle_back_connection_finished(struct proxy* proxy) {
-    size_t to_write = proxy->welcome_size;
-    if (to_write == -1u) {
-        perror("Already initialized");
-        return;
-    }
-    size_t written = 0;
-    while (written < to_write) {
-        size_t current_written = write(proxy->socket, proxy->welcome_bytes + written, to_write - written);
-        if (current_written <= 0) {
-            general_error(proxy);
-            return;
-        }
-        written += current_written;
-    }
-    proxy->welcome_size = 0;
-    free(proxy->welcome_bytes);
-
-    // now switch to only getting events for new bytes
-    struct epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
-    ev.data.ptr = proxy;
-    epoll_ctl(proxy->epoll_queue, EPOLL_CTL_MOD, proxy->socket, &ev);
-
-    // process the remaining stuff in the read buffer
-    do_proxy(proxy->other);
 }
 
 static void process_other_events(struct epoll_event *ev) {
     struct proxy* info = (struct proxy*)ev->data.ptr;
     if (ev->events & (EPOLLERR|EPOLLHUP)) {
         handle_timeout(info);
+        return ;
     }
-    else if (ev->events & EPOLLIN) {
+    if (ev->events & EPOLLIN) {
         if (info->other) {
-            if (info->welcome_size != 0 && ev->events & EPOLLOUT) {
-                // server sends data before it got any
-                handle_back_connection_finished(info);
-            }
             do_proxy(info);
         }
         else {
              handle_new_data(info);
         }
     }
-    else if (ev->events & EPOLLOUT) {
-        if (info->welcome_size != 0) {
-            handle_back_connection_finished(info);
-        }
-        else {
-            fprintf(stderr, "Not sure what to do with this event\n");
-        }
-    }
-    else {
-        fprintf(stderr, "Unsupported event?\n");
+    if (ev->events & EPOLLOUT && info->other) {
+        // this side of the proxy is ready for writing
+        // so if the other side has something left to send, try it
+        do_proxy(info->other);
     }
 }
 
@@ -274,7 +234,7 @@ static int initialize(struct sockaddr_in *listen_address, int* epoll_queue, int*
         return -1;
     }
 
-    return add_to_queue(*epoll_queue, *listen_socket, false, NULL);
+    return add_to_queue(*epoll_queue, *listen_socket, NULL);
 }
 
 
@@ -320,7 +280,7 @@ int start(struct config* _config) {
                     data->other = NULL;
                     data->other_timed_out = false;
                     data->welcome_size = 0;
-                    if (add_to_queue(epoll_queue, conn_sock, false, data) != 0) {
+                    if (add_to_queue(epoll_queue, conn_sock, data) != 0) {
                         close(conn_sock);
                         free(data);
                     }
