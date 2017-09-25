@@ -26,8 +26,13 @@ struct proxy {
     int socket;
     struct proxy* other;
     bool other_timed_out;
-    uint8_t* welcome_bytes;
-    size_t welcome_size;
+    bool closed;
+    
+    void* buffer;
+    void* buffer_end;
+
+    void* buffer_filled;
+    void* buffer_flushed;
 };
 
 static void non_block(int fd) {
@@ -35,14 +40,9 @@ static void non_block(int fd) {
 	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-static int add_to_queue(int epoll_queue, int socket, bool receive_out, void* data) {
+static int add_to_queue(int epoll_queue, int socket, void* data) {
     struct epoll_event ev;
-    if (receive_out) {
-        ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
-    }
-    else {
-        ev.events = EPOLLIN | EPOLLET;
-    }
+    ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
     ev.data.ptr = data;
 	if (epoll_ctl(epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
         perror("cannot connect epoll to just created socket");
@@ -51,21 +51,24 @@ static int add_to_queue(int epoll_queue, int socket, bool receive_out, void* dat
     return 0;
 }
 
-static void close_and_delete(int epoll_queue, int socket) {
-	epoll_ctl(epoll_queue, EPOLL_CTL_DEL, socket, NULL);
-    close(socket);
+static void close_and_delete(struct proxy* this) {
+    if (!this->closed) {
+        epoll_ctl(this->epoll_queue, EPOLL_CTL_DEL, this->socket, NULL);
+        close(this->socket);
+        this->closed = true;
+    }
+
 }
 
 static void close_and_free_proxy(struct proxy* info) {
-    close_and_delete(info->epoll_queue, info->socket);
+    close_and_delete(info);
     if (info->other) {
-        close_and_delete(info->epoll_queue, info->other->socket);
-        if (info->other->welcome_size != 0) {
-            free(info->other->welcome_bytes);
-        }
+        close_and_delete(info->other);
+        info->other->other = NULL; // break the backwards pointer
+        // TODO: if the other side is in the queue of stuff still to process, we can't free stuff, yet if not, we do have to cleanup stuff
     }
-    if (info->welcome_size != 0) {
-        free(info->welcome_bytes);
+    if (info->buffer) {
+        free(info->buffer);
     }
     free(info);
 }
