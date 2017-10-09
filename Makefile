@@ -8,15 +8,17 @@ ifeq ($(shell uname), Darwin)
 LIBS += -largp
 endif
 
+ifdef DEBUG # set with `make .. DEBUG=1`
+	CFLAGS+=-g -DDEBUG
+else
+	CFLAGS+=-O2 -DNDEBUG
+endif
+
 knock-ssh-splice: $(SPLICE_SOURCES)
-	$(CC) $(CFLAGS) -O2 -o $@ $(SPLICE_SOURCES) $(LIBS)
+	$(CC) $(CFLAGS) -o $@ $(SPLICE_SOURCES) $(LIBS)
 
 knock-ssh: $(LIBEV_SOURCES)
-	$(CC) $(CFLAGS) -O2 -o $@ $(LIBEV_SOURCES) $(LIBS)
-
-knock-ssh-debug: $(LIBEV_SOURCES)
-	$(CC) $(CFLAGS) -g -o $@ $(LIBEV_SOURCES) $(LIBS)
-
+	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS)
 
 clean:
-	rm -f *.o knock-ssh
+	rm -f *.o knock-ssh knock-ssh-splice
