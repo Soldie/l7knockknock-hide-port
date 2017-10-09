@@ -138,7 +138,7 @@ static void do_proxy(struct proxy* proxy) {
         size_t bytes_written = write(proxy->other->socket, proxy->buffer_flushed, to_write);
         CHECK_ASYNC_RESULTS(bytes_written, proxy, "Writing data to other side");
 
-        proxy->buffer_filled += bytes_written;
+        proxy->buffer_flushed += bytes_written;
         full_flush = proxy->buffer_filled == proxy->buffer_flushed;
         LOG_V("Write new bytes: %p %d\n", (void*)proxy, bytes_written);
     /*
@@ -160,6 +160,7 @@ static void back_connection_finished(struct proxy* back) {
     back->in_op = front->in_op = do_proxy;
 
     do_proxy_reverse(back);
+    do_proxy(back);
 }
 
 static int create_connection(int port) {
