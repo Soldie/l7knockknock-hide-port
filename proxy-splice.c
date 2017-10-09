@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <errno.h>
+#include <ctype.h>
+
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -16,8 +18,11 @@
 #include <sys/ioctl.h>
 
 #include "knock-common.h"
+#include "debug.h"
+#include "common.h"
 
 #define MAX_EVENTS 42
+
 
 static struct config* config;
 
@@ -64,6 +69,8 @@ static bool add_to_queue(int epoll_queue, int socket, void* data) {
 
 static void close_and_free_proxy(struct proxy* proxy) {
     if (!proxy->closed) {
+        LOG_D("closing: %p %d\n", (void*)proxy, proxy->socket);
+
         epoll_ctl(proxy->epoll_queue, EPOLL_CTL_DEL, proxy->socket, NULL);
         close(proxy->socket);
         proxy->closed = true;
@@ -98,11 +105,13 @@ static void handle_timeout(struct proxy* info) {
         return; \
     } \
     else if (__result == -1u) { \
+        LOG_D("ASYNC got connection error: %p %d\n", (void*)__proxy, __proxy->socket); \
         close_and_free_proxy(__proxy); \
         perror("Connection error ("__msg")"); \
         return; \
     } \
     else if (__result == 0) { \
+        LOG_D("ASYNC got EOS: %p %d\n", (void*)__proxy, __proxy->socket); \
         close_and_free_proxy(__proxy); \
         return; \
     } \
@@ -112,6 +121,7 @@ static void handle_timeout(struct proxy* info) {
 static void do_proxy(struct proxy* proxy) {
     bool full_buffer = false;
     bool full_flush = false;
+    LOG_V("Started normal proxy: %p\n", (void*)proxy);
     do {
         if (proxy->buffer_filled == proxy->buffer_flushed) {
             // buffer has been send to other side, so we can refill it
@@ -121,6 +131,7 @@ static void do_proxy(struct proxy* proxy) {
             full_buffer = bytes_read == proxy->buffer_size;
             proxy->buffer_flushed = proxy->buffer;
             proxy->buffer_filled = proxy->buffer + bytes_read;
+            LOG_V("Read new bytes: %p %d\n", (void*)proxy, bytes_read);
         }
 
         size_t to_write = proxy->buffer_filled - proxy->buffer_flushed;
@@ -129,6 +140,7 @@ static void do_proxy(struct proxy* proxy) {
 
         proxy->buffer_filled += bytes_written;
         full_flush = proxy->buffer_filled == proxy->buffer_flushed;
+        LOG_V("Write new bytes: %p %d\n", (void*)proxy, bytes_written);
     /*
      * It could be that the read or the write side has more to produce/consume, and we won't get a new event for that, so while either one was fully flushed, we try again
      */
@@ -143,6 +155,7 @@ static void do_proxy_reverse(struct proxy* proxy) {
 static void back_connection_finished(struct proxy* back) {
     struct proxy* front = back->other;
 
+    LOG_D("Back connection setup: %p\n", (void*)back);
     back->out_op = front->out_op = do_proxy_reverse;
     back->in_op = front->in_op = do_proxy;
 
@@ -189,6 +202,18 @@ static void first_data(struct proxy* proxy) {
             proxy->buffer_flushed += config->knock_size; // skip the first knock-bytes
         }
     }
+#ifdef DEBUG
+    char __buf_copy[16];
+    memcpy(__buf_copy, proxy->buffer, MIN(bytes_read, 16));
+    for (int c = 0; c < 16; c++) {
+        if (!isalnum(__buf_copy[c])) {
+            __buf_copy[c]= '_';
+        }
+    }
+    __buf_copy[MIN(bytes_read, 15)] ='\0';
+    LOG_D("New connection send: %p %s %p (and %p vs %p (recv:%d)) to port %d\n", (void*) proxy, __buf_copy, (void*) proxy->buffer, (void*) proxy->buffer_flushed,(void*) proxy->buffer_filled, bytes_read, port);
+#endif
+
     int back_proxy_socket = create_connection(port);
     if (back_proxy_socket < 0) {
         close_and_free_proxy(proxy);
