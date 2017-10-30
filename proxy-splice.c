@@ -58,6 +58,9 @@ static void non_block(int fd) {
 
 static bool add_to_queue(int epoll_queue, int socket, void* data) {
     struct epoll_event ev;
+#ifdef DEBUG
+    memset(&ev, 0, sizeof(struct epoll_event));
+#endif
     ev.events = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP;
     ev.data.ptr = data;
     if (epoll_ctl(epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
@@ -165,7 +168,6 @@ static void back_connection_finished(struct proxy* back) {
 
 static int create_connection(int port) {
     struct sockaddr_in sin;
-
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = htonl(0x7f000001); /* 127.0.0.1 */
@@ -321,6 +323,9 @@ int start(struct config* _config) {
     }
 
     struct epoll_event events[MAX_EVENTS];
+#ifdef DEBUG
+    memset(&events, 0, MAX_EVENTS * sizeof(struct epoll_event));
+#endif
     for (;;) {
         int nfds = epoll_wait(epoll_queue, events, MAX_EVENTS, -1);
         if (nfds == -1) {
