@@ -53,7 +53,7 @@ struct proxy {
 
 static void non_block(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK | O_CLOEXEC);
 }
 
 static bool add_to_queue(int epoll_queue, int socket, void* data) {
@@ -173,7 +173,7 @@ static int create_connection(int port) {
     sin.sin_addr.s_addr = htonl(0x7f000001); /* 127.0.0.1 */
     sin.sin_port = htons(port);
 
-    int new_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    int new_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (new_socket < 0) {
         return -1;
     }
@@ -276,7 +276,7 @@ static void process_other_events(struct epoll_event *ev) {
 }
 
 static bool initialize(struct sockaddr_in *listen_address, int* epoll_queue, int* listen_socket) {
-    *listen_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    *listen_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (*listen_socket < 0) {
         perror("cannot open socket");
         return false;
