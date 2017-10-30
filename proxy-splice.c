@@ -104,7 +104,7 @@ static void handle_timeout(struct proxy* info) {
 }
 
 #define CHECK_ASYNC_RESULTS(__result, __proxy, __msg) { \
-    if (__result == -1u && errno == EAGAIN) { \
+    if (__result == -1u && (errno == EAGAIN || errno == EWOULDBLOCK)) { \
         return; \
     } \
     else if (__result == -1u) { \
@@ -173,7 +173,7 @@ static int create_connection(int port) {
     sin.sin_addr.s_addr = htonl(0x7f000001); /* 127.0.0.1 */
     sin.sin_port = htons(port);
 
-    int new_socket = socket(AF_INET, SOCK_STREAM, 0);
+    int new_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (new_socket < 0) {
         return -1;
     }
@@ -276,7 +276,7 @@ static void process_other_events(struct epoll_event *ev) {
 }
 
 static bool initialize(struct sockaddr_in *listen_address, int* epoll_queue, int* listen_socket) {
-    *listen_socket = socket(AF_INET, SOCK_STREAM, 0);
+    *listen_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (*listen_socket < 0) {
         perror("cannot open socket");
         return false;
@@ -294,7 +294,6 @@ static bool initialize(struct sockaddr_in *listen_address, int* epoll_queue, int
         perror("cannot start listening");
         return false;
     }
-    non_block(*listen_socket);
 
     *epoll_queue = epoll_create1(EPOLL_CLOEXEC);
     if (*epoll_queue < 0) {
