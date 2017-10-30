@@ -327,6 +327,7 @@ int start(struct config* _config) {
             perror("epoll_wait failure");
             return -1;
         }
+        LOG_V("Got %d events\n", nfds);
         for (int n = 0; n < nfds; ++n) {
             struct epoll_event* current_event = &(events[n]);
             if (current_event->data.ptr == NULL) {

@@ -10,6 +10,9 @@ endif
 
 ifdef DEBUG # set with `make .. DEBUG=1`
 	CFLAGS+=-g -DDEBUG
+ifdef VERBOSE
+	CFLAGS+=-DVERY_VERBOSE
+endif
 else
 	CFLAGS+=-O2 -DNDEBUG
 endif
