@@ -332,29 +332,36 @@ int start(struct config* _config) {
             struct epoll_event* current_event = &(events[n]);
             if (current_event->data.ptr == NULL) {
                 if (current_event->events & EPOLLIN) {
-                    // new connection
-                    int conn_sock = accept(listen_socket, NULL, NULL);
-                    if (conn_sock == -1) {
-                        perror("cannot accept new connection");
-                        continue;
-                    }
-                    non_block(conn_sock);
+                    // one or more new connections
+                    while (true) {
+                        int conn_sock = accept(listen_socket, NULL, NULL);
+                        if (conn_sock == -1) {
+                            if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                                // done with handling new connections
+                                break;
+                            } else {
+                                perror("cannot accept new connection");
+                                break;
+                            }
+                        }
+                        non_block(conn_sock);
 
-                    struct proxy* data = malloc(sizeof(struct proxy));
-                    data->closed = false;
-                    data->epoll_queue = epoll_queue;
-                    data->socket = conn_sock;
-                    data->other = NULL;
-                    data->other_timed_out = false;
-                    data->buffer = malloc(config->max_recv_buffer);
-                    data->buffer_size = config->max_recv_buffer;
-                    data->buffer_flushed = data->buffer_filled = NULL;
-                    data->out_op = NULL;
-                    data->in_op = first_data;
-                    if (!add_to_queue(epoll_queue, conn_sock, data)) {
-                        close(conn_sock);
-                        free(data->buffer);
-                        free(data);
+                        struct proxy* data = malloc(sizeof(struct proxy));
+                        data->closed = false;
+                        data->epoll_queue = epoll_queue;
+                        data->socket = conn_sock;
+                        data->other = NULL;
+                        data->other_timed_out = false;
+                        data->buffer = malloc(config->max_recv_buffer);
+                        data->buffer_size = config->max_recv_buffer;
+                        data->buffer_flushed = data->buffer_filled = NULL;
+                        data->out_op = NULL;
+                        data->in_op = first_data;
+                        if (!add_to_queue(epoll_queue, conn_sock, data)) {
+                            close(conn_sock);
+                            free(data->buffer);
+                            free(data);
+                        }
                     }
                 }
             } else {
