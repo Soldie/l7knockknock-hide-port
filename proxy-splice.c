@@ -177,7 +177,6 @@ static int create_connection(int port) {
     if (new_socket < 0) {
         return -1;
     }
-    non_block(new_socket);
     int res = connect(new_socket, (struct sockaddr *)(&sin), sizeof(struct sockaddr_in));
     if (res < 0 && errno != EINPROGRESS) {
         perror("Error opening connection to back-end");
