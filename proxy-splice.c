@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <ctype.h>
+#include <time.h>
 
 
 #include <netinet/in.h>
@@ -49,7 +50,40 @@ struct proxy {
 
     ProxyCall out_op;
     ProxyCall in_op;
+
+    struct timespec last_recieved;
+    struct proxy* next;
+    struct proxy* previous;
 };
+
+static struct proxy* timeout_queue_head = NULL;
+static struct proxy* timeout_queue_tail = NULL;
+
+static struct timespec current_time;
+
+static void touch(struct proxy* this) {
+    this->last_recieved = current_time;
+
+    struct proxy* old_head = timeout_queue_head;
+    struct proxy* old_prev = this->previous;
+    struct proxy* old_next = this->next;
+
+    timeout_queue_head = this;
+    this->previous = NULL;
+    this->next = (old_head != this) ? old_head : NULL; // do not make a loop
+
+    if (old_prev) {
+        old_prev->next = old_next;
+    }
+
+    if (old_next) {
+        old_next->previous = old_prev;
+    }
+    else {
+        // at the end of the tail, so update the tail pointer to the new tail
+        timeout_queue_tail = old_prev;
+    }
+}
 
 static void non_block(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -263,6 +297,9 @@ static void process_other_events(struct epoll_event *ev) {
         }
         return ;
     }
+    if (ev->events & (EPOLLIN | EPOLLOUT)) {
+        touch(proxy);
+    }
     if (ev->events & EPOLLIN && proxy->in_op) {
         proxy->in_op(proxy);
         if (proxy->closed) { // don't continue in case
@@ -330,6 +367,9 @@ int start(struct config* _config) {
             perror("epoll_wait failure");
             return -1;
         }
+        // get the current time stamp
+        clock_gettime(CLOCK_MONOTONIC, &current_time);
+
         LOG_V("Got %d events\n", nfds);
         for (int n = 0; n < nfds; ++n) {
             struct epoll_event* current_event = &(events[n]);
