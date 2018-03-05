@@ -1,5 +1,5 @@
 LIBEVENT ?= /usr/local
-CFLAGS = -I. -I$(LIBEVENT)/include -Wall -Wpedantic -Wextra
+CFLAGS = -I. -I$(LIBEVENT)/include -Wall -Wpedantic -Wextra -D_GNU_SOURCE
 LIBS = -L. -L$(LIBEVENT)/lib -levent 
 LIBEV_SOURCES = knock-ssh.c proxy-libevent.c
 SPLICE_SOURCES = knock-ssh.c proxy-splice.c

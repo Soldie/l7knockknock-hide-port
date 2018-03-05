@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include <fcntl.h>
 
+
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
@@ -42,11 +43,8 @@ struct proxy {
     bool timed_out;
     bool closed;
 
-    uint8_t* buffer;
-    size_t buffer_size;
-
-    uint8_t* buffer_filled;
-    uint8_t* buffer_flushed;
+    int buffer[2];
+    size_t buffer_filled;
 
     ProxyCall out_op;
     ProxyCall in_op;
@@ -55,6 +53,8 @@ struct proxy {
     struct proxy* next;
     struct proxy* previous;
 };
+
+enum { READ = 0, WRITE = 1 };
 
 static struct proxy* timeout_queue_head = NULL;
 static struct proxy* timeout_queue_tail = NULL;
@@ -142,9 +142,9 @@ static void close_and_free_proxy(struct proxy* proxy) {
             close_and_free_proxy(proxy->other);
         }
 
-        if (proxy->buffer) {
-            SCHEDULE_FREE(proxy->buffer);
-        }
+        close(proxy->buffer[READ]);
+        close(proxy->buffer[WRITE]);
+
         SCHEDULE_FREE(proxy);
         remove_from_timeout_queue(proxy);
     }
@@ -188,33 +188,66 @@ static void handle_normal_timeout(struct proxy* this) {
 }
 
 
-static void do_proxy(struct proxy* proxy) {
-    bool full_buffer = false;
-    bool full_flush = false;
-    LOG_V("Started normal proxy: %p\n", (void*)proxy);
-    do {
-        if (proxy->buffer_filled == proxy->buffer_flushed) {
-            // buffer has been send to other side, so we can refill it
-            size_t bytes_read = read(proxy->socket, proxy->buffer, proxy->buffer_size);
-            CHECK_ASYNC_RESULTS(bytes_read, proxy, "Reading data from socket");
+#define MAX_SPLICE_CHUNK (64*1024)
 
-            full_buffer = bytes_read == proxy->buffer_size;
-            proxy->buffer_flushed = proxy->buffer;
-            proxy->buffer_filled = proxy->buffer + bytes_read;
-            LOG_V("Read new bytes: %p %d\n", (void*)proxy, bytes_read);
+static void do_proxy(struct proxy* proxy) {
+    bool should_close_proxy = false;
+    LOG_V("Started normal proxy: %p\n", (void*)proxy);
+    while (true) {
+        /*** reasons the loop stops:
+         * - can't read at the moment & buffer was empty
+         * - can't write at the moment (don't want to needlesly fill the buffer, we always try to read again when we get a write event)
+         */
+
+
+        // read everything we can fit into the pipe buffer
+        ssize_t bytes_read = splice(proxy->socket, NULL, proxy->buffer[WRITE], NULL, MAX_SPLICE_CHUNK, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+        if (bytes_read == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) { 
+                bytes_read = 0; // expected end of non_blocking splice
+            }
+            else {
+                LOG_D("ASYNC got connection error: %p %d\n", (void*)proxy, proxy->socket);
+                perror("Connection error (reading from socket to splice)"); \
+                should_close_proxy = true;
+            }
+        }
+        else if (bytes_read == 0) {
+            LOG_D("ASYNC got EOS: %p %d\n", (void*)proxy, proxy->socket);
+            should_close_proxy = true;
+        }
+        proxy->buffer_filled += bytes_read;
+
+        if (proxy->buffer_filled == 0) {
+            break;
         }
 
-        size_t to_write = proxy->buffer_filled - proxy->buffer_flushed;
-        size_t bytes_written = write(proxy->other->socket, proxy->buffer_flushed, to_write);
-        CHECK_ASYNC_RESULTS(bytes_written, proxy, "Writing data to other side");
+        // splice stuff from pipe to target socket
+        ssize_t bytes_written = splice(proxy->buffer[READ], NULL, proxy->other->socket, NULL, MIN(proxy->buffer_filled, MAX_SPLICE_CHUNK), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+        if (bytes_written == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) { 
+                break; // target not ready to receive more bytes
+            }
+            else {
+                LOG_D("ASYNC got connection error: %p %d\n", (void*)proxy, proxy->socket);
+                perror("Connection error (splicing from pipe to socket)"); \
+                should_close_proxy = true;
+                proxy->buffer_filled = 0; // signal that the data should be dropped
+                break;
+            }
+        }
+        else if (bytes_written == 0) {
+            LOG_D("ASYNC got EOS: %p %d\n", (void*)proxy, proxy->socket);
+            should_close_proxy = true;
+            proxy->buffer_filled = 0; // signal that the data should be dropped
+            break;
+        }
+        proxy->buffer_filled -= bytes_written;
+    }
 
-        proxy->buffer_flushed += bytes_written;
-        full_flush = proxy->buffer_filled == proxy->buffer_flushed;
-        LOG_V("Write new bytes: %p %d\n", (void*)proxy, bytes_written);
-    /*
-     * It could be that the read or the write side has more to produce/consume, and we won't get a new event for that, so while either one was fully flushed, we try again
-     */
-    } while (full_flush || full_buffer);
+    if (should_close_proxy && proxy->buffer_filled == 0) {
+        close_and_free_proxy(proxy);
+    }
 }
 
 static void do_proxy_reverse(struct proxy* proxy) {
@@ -253,7 +286,7 @@ static int create_connection(int port) {
     return new_socket;
 }
 
-static void setup_back_connection(struct proxy* proxy, int port) {
+static void setup_back_connection(struct proxy* proxy, uint32_t port) {
     int back_proxy_socket = create_connection(port);
     if (back_proxy_socket < 0) {
         close_and_free_proxy(proxy);
@@ -267,9 +300,8 @@ static void setup_back_connection(struct proxy* proxy, int port) {
     back_proxy->other = proxy;
     proxy->other = back_proxy;
     back_proxy->timed_out = false;
-    back_proxy->buffer = malloc(config->max_recv_buffer);
-    back_proxy->buffer_size = config->max_recv_buffer;
-    back_proxy->buffer_flushed = back_proxy->buffer_filled = NULL;
+    pipe2(back_proxy->buffer, O_CLOEXEC | O_NONBLOCK);
+    back_proxy->buffer_filled = 0;
     back_proxy->out_op = back_connection_finished;
     back_proxy->in_op = NULL;
 
@@ -286,31 +318,37 @@ static void setup_back_connection(struct proxy* proxy, int port) {
 static void first_data(struct proxy* proxy) {
     assert(proxy->other == NULL);
     assert(!proxy->closed);
-    assert(proxy->buffer_flushed == NULL && proxy->buffer_filled == NULL);
 
-    size_t bytes_read = read(proxy->socket, proxy->buffer, proxy->buffer_size);
+    uint8_t* tmp_buffer = malloc(config->knock_size);
+    size_t bytes_read = read(proxy->socket, tmp_buffer, config->knock_size);
     CHECK_ASYNC_RESULTS(bytes_read, proxy, "Reading initial data from remote");
 
-    proxy->buffer_flushed = proxy->buffer;
-    proxy->buffer_filled = proxy->buffer + bytes_read;
-    int port = config->normal_port;
-    if (bytes_read >= config->knock_size) {
-        if (memcmp(config->knock_value, proxy->buffer, config->knock_size) == 0) {
+    uint32_t port = config->normal_port;
+    if (bytes_read == config->knock_size) {
+        if (memcmp(config->knock_value, tmp_buffer, config->knock_size) == 0) {
             port = config->ssh_port;
-            proxy->buffer_flushed += config->knock_size; // skip the first knock-bytes
         }
     }
+    if (port == config->normal_port) {
+        // copy stuff we read to the pipe
+        write(proxy->buffer[WRITE], tmp_buffer, bytes_read);
+        proxy->buffer_filled += bytes_read;
+    }
+
 #ifdef DEBUG
     char __buf_copy[16];
-    memcpy(__buf_copy, proxy->buffer, MIN(bytes_read, 16));
-    for (int c = 0; c < 16; c++) {
+    memcpy(__buf_copy, tmp_buffer, MIN(bytes_read, 16));
+    for (int c = 0; c < MIN(bytes_read, 16); c++) {
         if (!isalnum(__buf_copy[c])) {
             __buf_copy[c]= '_';
         }
     }
     __buf_copy[MIN(bytes_read, 15)] ='\0';
-    LOG_D("New connection send: %p %s %p (and %p vs %p (recv:%d)) to port %d\n", (void*) proxy, __buf_copy, (void*) proxy->buffer, (void*) proxy->buffer_flushed,(void*) proxy->buffer_filled, bytes_read, port);
+    LOG_D("New connection send: %p \"%s\" to port %d\n", (void*) proxy, __buf_copy, port);
 #endif
+
+    free(tmp_buffer);
+
     setup_back_connection(proxy, port);
 }
 
@@ -440,14 +478,14 @@ int start(struct config* _config) {
                         data->socket = conn_sock;
                         data->other = NULL;
                         data->timed_out = false;
-                        data->buffer = malloc(config->max_recv_buffer);
-                        data->buffer_size = config->max_recv_buffer;
-                        data->buffer_flushed = data->buffer_filled = NULL;
+                        pipe2(data->buffer, O_CLOEXEC | O_NONBLOCK);
+                        data->buffer_filled = 0;
                         data->out_op = NULL;
                         data->in_op = first_data;
                         if (!add_to_queue(epoll_queue, conn_sock, data)) {
                             close(conn_sock);
-                            free(data->buffer);
+                            close(data->buffer[READ]);
+                            close(data->buffer[WRITE]);
                             free(data);
                         }
                         else {
