@@ -51,7 +51,7 @@ struct proxy {
     ProxyCall out_op;
     ProxyCall in_op;
 
-    struct timespec last_recieved;
+    time_t last_recieved;
     struct proxy* next;
     struct proxy* previous;
 };
@@ -59,7 +59,7 @@ struct proxy {
 static struct proxy* timeout_queue_head = NULL;
 static struct proxy* timeout_queue_tail = NULL;
 
-static struct timespec current_time;
+static time_t current_time;
 
 static void touch(struct proxy* this) {
     this->last_recieved = current_time;
@@ -411,7 +411,9 @@ int start(struct config* _config) {
             return -1;
         }
         // get the current time stamp
-        clock_gettime(CLOCK_MONOTONIC, &current_time);
+        struct timespec tm;
+        clock_gettime(CLOCK_MONOTONIC, &tm);
+        current_time = tm.tv_sec;
 
         LOG_V("Got %d events\n", nfds);
         for (int n = 0; n < nfds; ++n) {
@@ -458,18 +460,18 @@ int start(struct config* _config) {
             }
         }
         // handle timeouts
-        time_t default_timeout_threshold = current_time.tv_sec - config->default_timeout.tv_sec;
+        time_t default_timeout_threshold = current_time - config->default_timeout.tv_sec;
         struct proxy* current_proxy = timeout_queue_tail;
 
         // first we go throught the normal timeout cases
-        while (current_proxy && current_proxy->last_recieved.tv_sec < default_timeout_threshold) {
+        while (current_proxy && current_proxy->last_recieved < default_timeout_threshold) {
             // general timeout
             handle_normal_timeout(current_proxy);
             current_proxy = current_proxy->previous;
         }
         // then we go through the knock timeout cases, which are newer in timeout
-        time_t knock_timeout_threshold = current_time.tv_sec - config->knock_timeout.tv_sec;
-        while (current_proxy && current_proxy->last_recieved.tv_sec < knock_timeout_threshold) {
+        time_t knock_timeout_threshold = current_time - config->knock_timeout.tv_sec;
+        while (current_proxy && current_proxy->last_recieved < knock_timeout_threshold) {
             if (!current_proxy->other) {
                 // knock timeout applies
                 handle_knock_timeout(current_proxy);
