@@ -39,7 +39,7 @@ struct proxy {
     int epoll_queue;
     int socket;
     struct proxy* other;
-    bool other_timed_out;
+    bool timed_out;
     bool closed;
 
     uint8_t* buffer;
@@ -63,6 +63,7 @@ static struct timespec current_time;
 
 static void touch(struct proxy* this) {
     this->last_recieved = current_time;
+    this->timed_out = false;
 
     struct proxy* old_head = timeout_queue_head;
     struct proxy* old_prev = this->previous;
@@ -82,6 +83,31 @@ static void touch(struct proxy* this) {
     else {
         // at the end of the tail, so update the tail pointer to the new tail
         timeout_queue_tail = old_prev;
+    }
+}
+
+static void add_new_timeout_queue(struct proxy* this) {
+    this->last_recieved = current_time;
+    this->previous = NULL;
+    this->next = timeout_queue_head;
+    if (timeout_queue_head) {
+        timeout_queue_head->previous = this;
+    }
+    timeout_queue_head = this;
+}
+
+static void remove_from_timeout_queue(struct proxy* this) {
+    if (this->previous) {
+        this->previous->next = this->next;
+    }
+    if (this->next) {
+        this->next->previous = this->previous;
+    }
+    if (timeout_queue_tail == this) {
+        timeout_queue_tail = this->previous;
+    }
+    if (timeout_queue_head == this) {
+        timeout_queue_head = this->next;
     }
 }
 
@@ -120,22 +146,29 @@ static void close_and_free_proxy(struct proxy* proxy) {
             SCHEDULE_FREE(proxy->buffer);
         }
         SCHEDULE_FREE(proxy);
+        remove_from_timeout_queue(proxy);
     }
 }
 
-static void handle_timeout(struct proxy* info) {
-    if (!info) {
-        return;
-    }
-    if (info->other) {
-        // fully established connection
-        info->other->other_timed_out = true;
-        if (!info->other_timed_out) {
-            return; // the other didn't time out yet so lets wait for that
+static void handle_normal_timeout(struct proxy* this) {
+    if (!this->timed_out) {
+        // only handle new time out events
+        this->timed_out = true;
+        if (this->other) {
+            // we are a fully running connection
+            if (this->other->timed_out) {
+                // if the other side already timed-out, close ourself
+                close_and_free_proxy(this);
+                return;
+            }
+        }
+        else {
+            // no-back side connetion esthablished, so just get out of the queue
+            close_and_free_proxy(this);
         }
     }
-    close_and_free_proxy(info);
 }
+
 
 #define CHECK_ASYNC_RESULTS(__result, __proxy, __msg) { \
     if (__result == -1u && (errno == EAGAIN || errno == EWOULDBLOCK)) { \
@@ -220,6 +253,35 @@ static int create_connection(int port) {
     return new_socket;
 }
 
+static void setup_back_connection(struct proxy* proxy, int port) {
+    int back_proxy_socket = create_connection(port);
+    if (back_proxy_socket < 0) {
+        close_and_free_proxy(proxy);
+        return;
+    }
+
+    struct proxy *back_proxy = malloc(sizeof(struct proxy));
+    back_proxy->closed = false;
+    back_proxy->epoll_queue = proxy->epoll_queue;
+    back_proxy->socket = back_proxy_socket;
+    back_proxy->other = proxy;
+    proxy->other = back_proxy;
+    back_proxy->timed_out = false;
+    back_proxy->buffer = malloc(config->max_recv_buffer);
+    back_proxy->buffer_size = config->max_recv_buffer;
+    back_proxy->buffer_flushed = back_proxy->buffer_filled = NULL;
+    back_proxy->out_op = back_connection_finished;
+    back_proxy->in_op = NULL;
+
+
+    if (!add_to_queue(proxy->epoll_queue, back_proxy_socket, back_proxy)) {
+        close_and_free_proxy(proxy);
+        return;
+    }
+    add_new_timeout_queue(back_proxy);
+    proxy->in_op = NULL; // don't read anything anymore until we are done with back connection
+
+}
 
 static void first_data(struct proxy* proxy) {
     assert(proxy->other == NULL);
@@ -249,32 +311,14 @@ static void first_data(struct proxy* proxy) {
     __buf_copy[MIN(bytes_read, 15)] ='\0';
     LOG_D("New connection send: %p %s %p (and %p vs %p (recv:%d)) to port %d\n", (void*) proxy, __buf_copy, (void*) proxy->buffer, (void*) proxy->buffer_flushed,(void*) proxy->buffer_filled, bytes_read, port);
 #endif
+    setup_back_connection(proxy, port);
+}
 
-    int back_proxy_socket = create_connection(port);
-    if (back_proxy_socket < 0) {
-        close_and_free_proxy(proxy);
-        return;
+static void handle_knock_timeout(struct proxy* this) {
+    if (!this->timed_out) {
+        this->timed_out = true;
+        setup_back_connection(this, config->normal_port);
     }
-
-    struct proxy *back_proxy = malloc(sizeof(struct proxy));
-    back_proxy->closed = false;
-    back_proxy->epoll_queue = proxy->epoll_queue;
-    back_proxy->socket = back_proxy_socket;
-    back_proxy->other = proxy;
-    proxy->other = back_proxy;
-    back_proxy->other_timed_out = false;
-    back_proxy->buffer = malloc(config->max_recv_buffer);
-    back_proxy->buffer_size = config->max_recv_buffer;
-    back_proxy->buffer_flushed = back_proxy->buffer_filled = NULL;
-    back_proxy->out_op = back_connection_finished;
-    back_proxy->in_op = NULL;
-
-    if (!add_to_queue(proxy->epoll_queue, back_proxy_socket, back_proxy)) {
-        close_and_free_proxy(proxy);
-        return;
-    }
-
-    proxy->in_op = NULL; // don't read anything anymore until we are done with back connection
 }
 
 static void process_other_events(struct epoll_event *ev) {
@@ -340,7 +384,6 @@ static bool initialize(struct sockaddr_in *listen_address, int* epoll_queue, int
     return add_to_queue(*epoll_queue, *listen_socket, NULL);
 }
 
-
 int start(struct config* _config) {
     config = _config;
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -394,7 +437,7 @@ int start(struct config* _config) {
                         data->epoll_queue = epoll_queue;
                         data->socket = conn_sock;
                         data->other = NULL;
-                        data->other_timed_out = false;
+                        data->timed_out = false;
                         data->buffer = malloc(config->max_recv_buffer);
                         data->buffer_size = config->max_recv_buffer;
                         data->buffer_flushed = data->buffer_filled = NULL;
@@ -405,12 +448,36 @@ int start(struct config* _config) {
                             free(data->buffer);
                             free(data);
                         }
+                        else {
+                            add_new_timeout_queue(data);
+                        }
                     }
                 }
             } else {
                 process_other_events(current_event);
             }
         }
+        // handle timeouts
+        time_t default_timeout_threshold = current_time.tv_sec - config->default_timeout.tv_sec;
+        struct proxy* current_proxy = timeout_queue_tail;
+
+        // first we go throught the normal timeout cases
+        while (current_proxy && current_proxy->last_recieved.tv_sec < default_timeout_threshold) {
+            // general timeout
+            handle_normal_timeout(current_proxy);
+            current_proxy = current_proxy->previous;
+        }
+        // then we go through the knock timeout cases, which are newer in timeout
+        time_t knock_timeout_threshold = current_time.tv_sec - config->knock_timeout.tv_sec;
+        while (current_proxy && current_proxy->last_recieved.tv_sec < knock_timeout_threshold) {
+            if (!current_proxy->other) {
+                // knock timeout applies
+                handle_knock_timeout(current_proxy);
+            }
+            current_proxy = current_proxy->previous;
+        }
+
+
         // handle pending free's
         for (size_t i = 0 ; i < free_index; i++) {
             free(to_free[i]);
