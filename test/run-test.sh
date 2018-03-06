@@ -27,7 +27,17 @@ kill_server() {
 }
 trap kill_server EXIT
 
-"$TARGET" --normalPort=5000 --listenPort=6000 HELLO &
+VALGRIND="false"
+if [ $# -eq 2 ]; then
+    if [[ "$2" == "--valgrind" ]]; then
+        VALGRIND="true"
+    fi
+fi
+if [[ "$VALGRIND" == "true" ]]; then
+    valgrind -v --leak-check=full $TARGET --normalPort=5000 --listenPort=6000 HELLO &
+else
+    $TARGET --normalPort=5000 --listenPort=6000 HELLO &
+fi
 readonly PROXY_PID=$!
 
 kill_proxy() {
@@ -46,7 +56,7 @@ echo ""
 echo "/----------------"
 echo "| Running single threaded test case"
 echo "\\----------------"
-run_test 10 1
+run_test 20 1
 run_test 200 1
 
 echo "" 

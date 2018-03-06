@@ -62,8 +62,12 @@ static struct proxy* timeout_queue_tail = NULL;
 static time_t current_time;
 
 static void touch(struct proxy* this) {
+    //LOG_D("B-Touch: %p (prev: %p, next: %p) (head: %p, tail: %p)\n", (void*)this, (void*)this->previous, (void*)this->next, (void*)timeout_queue_head, (void*)timeout_queue_tail);
     this->last_recieved = current_time;
     this->timed_out = false;
+    if (timeout_queue_head == this) {
+        return;
+    }
 
     struct proxy* old_head = timeout_queue_head;
     struct proxy* old_prev = this->previous;
@@ -71,7 +75,10 @@ static void touch(struct proxy* this) {
 
     timeout_queue_head = this;
     this->previous = NULL;
-    this->next = (old_head != this) ? old_head : NULL; // do not make a loop
+    this->next = old_head; 
+    if (old_head) {
+        old_head->previous = this;
+    }
 
     if (old_prev) {
         old_prev->next = old_next;
@@ -81,7 +88,7 @@ static void touch(struct proxy* this) {
         old_next->previous = old_prev;
     }
     else {
-        // at the end of the tail, so update the tail pointer to the new tail
+        // we were at the tail of the list
         timeout_queue_tail = old_prev;
     }
 }
@@ -309,12 +316,11 @@ static void setup_back_connection(struct proxy* proxy, uint32_t port) {
     back_proxy->out_op = back_connection_finished;
     back_proxy->in_op = NULL;
 
-
+    add_new_timeout_queue(back_proxy);
     if (!add_to_queue(proxy->epoll_queue, back_proxy_socket, back_proxy)) {
         close_and_free_proxy(proxy);
         return;
     }
-    add_new_timeout_queue(back_proxy);
     proxy->in_op = NULL; // don't read anything anymore until we are done with back connection
 
 }
@@ -521,6 +527,9 @@ int start(struct config* _config) {
         // handle pending free's
         for (size_t i = 0 ; i < free_index; i++) {
             free(to_free[i]);
+            if (to_free[i] == timeout_queue_tail || to_free[i] == timeout_queue_head) {
+                LOG_D("Error, to free stuff is still in queue %p\n", to_free[i]);
+            }
         }
         free_index = 0;
     }
