@@ -121,7 +121,7 @@ static bool add_to_queue(int epoll_queue, int socket, void* data) {
 #ifdef DEBUG
     memset(&ev, 0, sizeof(struct epoll_event));
 #endif
-    ev.events = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP;
+    ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
     ev.data.ptr = data;
     if (epoll_ctl(epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
         perror("cannot connect epoll to just created socket");
@@ -157,12 +157,14 @@ static void handle_normal_timeout(struct proxy* this) {
         if (this->other) {
             // we are a fully running connection
             if (this->other->timed_out) {
+                LOG_D("Closing proxy %p due to timeout from both sides", (void*)this);
                 // if the other side already timed-out, close ourself
                 close_and_free_proxy(this);
                 return;
             }
         }
         else {
+            LOG_D("Closing proxy %p due to timeout from single side without backend", (void*)this);
             // no-back side connetion esthablished, so just get out of the queue
             close_and_free_proxy(this);
         }
@@ -246,6 +248,7 @@ static void do_proxy(struct proxy* proxy) {
     }
 
     if (should_close_proxy && proxy->buffer_filled == 0) {
+        LOG_D("During proxy we determined we should close it: %p %d\n", (void*)proxy, proxy->socket);
         close_and_free_proxy(proxy);
     }
 }
@@ -264,6 +267,7 @@ static void back_connection_finished(struct proxy* back) {
 
     do_proxy_reverse(back);
     do_proxy(back);
+    LOG_D("Back connection setup finished: %p\n", (void*)back);
 }
 
 static int create_connection(int port) {
@@ -365,10 +369,6 @@ static void process_other_events(struct epoll_event *ev) {
         return;
     }
 
-    if (ev->events & EPOLLRDHUP) {
-        close_and_free_proxy(proxy);
-        return;
-    }
     if (ev->events & (EPOLLERR|EPOLLHUP)) {
         // something happened, will need to actually talk to the socket to see if we care enough
         if (proxy->in_op) {

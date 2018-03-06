@@ -51,7 +51,6 @@ run_test 200 1
 
 echo "" 
 echo "/----------------"
-echo "/----------------"
 echo "| Running multi-threaded test case"
 echo "\\----------------"
 run_test 20 20
