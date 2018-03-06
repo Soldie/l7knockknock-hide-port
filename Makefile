@@ -23,5 +23,11 @@ knock-ssh-splice: $(SPLICE_SOURCES)
 knock-ssh: $(LIBEV_SOURCES)
 	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent
 
+test-normal: knock-ssh
+	(cd test && ./run-test.sh ../knock-ssh)
+
+test-splice: knock-ssh-splice
+	(cd test && ./run-test.sh ../knock-ssh-splice)
+
 clean:
 	rm -f *.o knock-ssh knock-ssh-splice
