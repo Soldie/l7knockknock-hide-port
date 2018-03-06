@@ -58,7 +58,7 @@ func main() {
     os.Exit(1)
 }
 
-const MAX_SIZE = 8 * 1024 * 1024
+const MAX_SIZE = 512 * 1024
 
 func start_bashing(smallOnly bool, port int, connections int, progress *uiprogress.Bar, done chan bool) {
     max_request_size := MAX_SIZE

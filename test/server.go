@@ -36,6 +36,9 @@ func main() {
         defer pprof.StopCPUProfile()
     }
 
+    c := make(chan os.Signal, 2)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
     l, err := net.Listen("tcp", ":" + strconv.Itoa(*port))
     if err != nil {
         fmt.Println("ERROR", err)
@@ -55,8 +58,6 @@ func main() {
 
     runtime.GOMAXPROCS(runtime.NumCPU() / 2)
 
-    c := make(chan os.Signal, 2)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
     go func() {
         for  {
