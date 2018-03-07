@@ -527,9 +527,6 @@ int start(struct config* _config) {
         // handle pending free's
         for (size_t i = 0 ; i < free_index; i++) {
             free(to_free[i]);
-            if (to_free[i] == timeout_queue_tail || to_free[i] == timeout_queue_head) {
-                LOG_D("Error, to free stuff is still in queue %p\n", to_free[i]);
-            }
         }
         free_index = 0;
     }
