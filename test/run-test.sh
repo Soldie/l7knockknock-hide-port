@@ -34,7 +34,7 @@ if [ $# -eq 2 ]; then
     fi
 fi
 if [[ "$VALGRIND" == "true" ]]; then
-    valgrind --log-file='valgrind.log' -v --leak-check=full $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
+    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
 else
     $TARGET --normalPort=5000 --listenPort=6000 HELLO > /dev/null &
 fi

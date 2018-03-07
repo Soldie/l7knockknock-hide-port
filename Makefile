@@ -4,6 +4,10 @@ LIBS = -L. -L$(LIBEVENT)/lib
 LIBEV_SOURCES = knock-ssh.c proxy-libevent.c
 SPLICE_SOURCES = knock-ssh.c proxy-splice.c
 
+ifdef COVERAGE
+CFLAGS+=-O0 -coverage
+endif
+
 ifeq ($(shell uname), Darwin)
 LIBS += -largp
 endif
@@ -18,13 +22,13 @@ else
 endif
 
 knock-ssh-splice: $(SPLICE_SOURCES)
-	$(CC) $(CFLAGS) -o $@ $(SPLICE_SOURCES) $(LIBS) 
+	$(CC) $(CFLAGS) -o $@ $(SPLICE_SOURCES) $(LIBS)
 
-knock-ssh: $(LIBEV_SOURCES)
-	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent
+knock-ssh-libevent: $(LIBEV_SOURCES)
+	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent 
 
-test-normal: knock-ssh
-	(cd test && ./run-test.sh ../knock-ssh)
+test-libevent: knock-ssh-libevent
+	(cd test && ./run-test.sh ../knock-ssh-libevent --valgrind)
 
 test-splice: knock-ssh-splice
 	(cd test && ./run-test.sh ../knock-ssh-splice --valgrind)
