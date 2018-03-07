@@ -85,6 +85,10 @@ func start_bashing(smallOnly bool, port int, connections int, delay int, progres
             os.Exit(1)
         }
 
+        if delay > 0 {
+            time.Sleep(time.Duration(rand.Int31n(int32(delay))) * time.Second)
+        }
+
         s := bufio.NewWriter(conn)
 
         wanted_size := rand.Int63n(int64(max_request_size))
