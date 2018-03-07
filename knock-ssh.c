@@ -9,7 +9,11 @@
 #include <argp.h>
 
 #include "knock-common.h"
+#ifdef USE_SPLICE
+#include "proxy-splice.h"
+#else
 #include "proxy-libevent.h"
+#endif
 
 
 #define EXT_PORT_DEFAULT 443

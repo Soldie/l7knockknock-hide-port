@@ -54,3 +54,4 @@ dkms.conf
 # app specific files
 knock-ssh
 knock-ssh-debug
+knock-ssh-splice

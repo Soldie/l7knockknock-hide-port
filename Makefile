@@ -1,17 +1,33 @@
 LIBEVENT ?= /usr/local
-CFLAGS = -I. -I$(LIBEVENT)/include -Wall -Wpedantic -Wextra
-LIBS = -L. -L$(LIBEVENT)/lib -levent 
-SOURCES = knock-ssh.c proxy-libevent.c
+CFLAGS = -I. -I$(LIBEVENT)/include -Wall -Wpedantic -Wextra -D_GNU_SOURCE
+LIBS = -L. -L$(LIBEVENT)/lib 
+LIBEV_SOURCES = knock-ssh.c proxy-libevent.c
+SPLICE_SOURCES = knock-ssh.c proxy-splice.c
 
 ifeq ($(shell uname), Darwin)
 LIBS += -largp
 endif
 
-knock-ssh: $(SOURCES)
-	$(CC) $(CFLAGS) -O2 -o $@ $(SOURCES) $(LIBS)
+ifdef DEBUG # set with `make .. DEBUG=1`
+	CFLAGS+=-g -DDEBUG
+ifdef VERBOSE
+	CFLAGS+=-DVERY_VERBOSE
+endif
+else
+	CFLAGS+=-O2 -DNDEBUG
+endif
 
-knock-ssh-debug: $(SOURCES)
-	$(CC) $(CFLAGS) -g -o $@ $(SOURCES) $(LIBS)
+knock-ssh-splice: $(SPLICE_SOURCES)
+	$(CC) $(CFLAGS) -o $@ $(SPLICE_SOURCES) $(LIBS) 
+
+knock-ssh: $(LIBEV_SOURCES)
+	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent
+
+test-normal: knock-ssh
+	(cd test && ./run-test.sh ../knock-ssh)
+
+test-splice: knock-ssh-splice
+	(cd test && ./run-test.sh ../knock-ssh-splice --valgrind)
 
 clean:
-	rm -f *.o knock-ssh
+	rm -f *.o knock-ssh knock-ssh-splice
