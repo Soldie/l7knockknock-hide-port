@@ -1,4 +1,6 @@
 # knock-ssh
+[![Build Status](https://travis-ci.org/DavyLandman/knock-ssh.svg?branch=master)](https://travis-ci.org/DavyLandman/knock-ssh) 
+[![codecov](https://codecov.io/gh/DavyLandman/knock-ssh/branch/master/graph/badge.svg)](https://codecov.io/gh/DavyLandman/knock-ssh)
 
 Hide an ssh service behind another tcp port. For example behind a https server (port 443). Only when you receive a certain piece of text (or bytes) will the ssh port be unlocked.
 
