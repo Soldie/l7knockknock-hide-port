@@ -16,6 +16,6 @@ script:
   - make test COVERAGE=1 DEBUG=1
 
 after_success:
-  - find . -type f -name '*.gcda' | xargs gcov -pb
-  - bash <(curl -s https://codecov.io/bash)
+  - find . -type f -name '*.gcda' | xargs llvm-cov gcov -pb
+  - bash <(curl -s https://codecov.io/bash) -x "llvm-cov gcov"
 
