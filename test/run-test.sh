@@ -50,8 +50,12 @@ trap kill_proxy ERR
 
 sleep 2
 
+PROG=""
+if [[ "$CI" == "1" ]]; then
+    PROG="--hideProgress"
+fi
 run_test() {
-    go run client.go --port 6000  --connections "$1" --parallel "$2"
+    go run client.go --port 6000  --connections "$1" --parallel "$2" $PROG
 }
 
 echo "" 

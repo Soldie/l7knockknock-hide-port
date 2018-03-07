@@ -24,6 +24,7 @@ func main() {
     connections := flag.Int("connections", 1000, "Amount of connections to make")
     parallel := flag.Int("parallel", 30, "Amount of parallel workers to run")
     cpuprofile := flag.String("cpuprofile", "", "write cpu profile to file")
+    hide_progress := flag.Bool("hideProgress", false, "do not show progress bars")
     flag.Parse()
     if *cpuprofile != "" {
         f, err := os.Create(*cpuprofile)
@@ -37,18 +38,29 @@ func main() {
     runtime.GOMAXPROCS(runtime.NumCPU() / 2)
     rand.Seed(time.Now().UnixNano())
 
-    uiprogress.Start()
+
+    if !*hide_progress {
+        uiprogress.Start()
+    }
+
 
     done := make(chan bool)
     for i := 0; i < *parallel; i++ {
-        go start_bashing(rand.Float32() >= 0.5, *port, *connections, uiprogress.AddBar(*connections).AppendCompleted().PrependElapsed(), done)
+        prog := func () {}
+        if !*hide_progress {
+            my_prog := uiprogress.AddBar(*connections).AppendCompleted().PrependElapsed()
+            prog = func() { my_prog.Incr() }
+        }
+        go start_bashing(rand.Float32() >= 0.5, *port, *connections, prog, done)
     }
 
     result := true
     for i := 0; i < *parallel; i++ {
         result = result && <-done
     }
-    uiprogress.Stop()
+    if !*hide_progress {
+        uiprogress.Stop()
+    }
 
     if result {
         fmt.Println("OK")
@@ -60,7 +72,7 @@ func main() {
 
 const MAX_SIZE = 512 * 1024
 
-func start_bashing(smallOnly bool, port int, connections int, progress *uiprogress.Bar, done chan bool) {
+func start_bashing(smallOnly bool, port int, connections int, progress func(), done chan bool) {
     max_request_size := MAX_SIZE
     if smallOnly {
         max_request_size = 128
@@ -108,7 +120,7 @@ func start_bashing(smallOnly bool, port int, connections int, progress *uiprogre
             done <- false
             return
         }
-        progress.Incr()
+        progress()
     }
     done <- true
 }
