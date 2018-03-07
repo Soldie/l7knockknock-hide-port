@@ -34,17 +34,19 @@ if [ $# -eq 2 ]; then
     fi
 fi
 if [[ "$VALGRIND" == "true" ]]; then
-    valgrind -v --leak-check=full $TARGET --normalPort=5000 --listenPort=6000 HELLO &
+    valgrind --log-file='valgrind.log' -v --leak-check=full $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
 else
-    $TARGET --normalPort=5000 --listenPort=6000 HELLO &
+    $TARGET --normalPort=5000 --listenPort=6000 HELLO > /dev/null &
 fi
 readonly PROXY_PID=$!
 
 kill_proxy() {
-    kill_descendant_processes $SERVER_PID  
     kill $PROXY_PID || true
+    if [[ "$VALGRIND" == "true" ]]; then
+        cat 'valgrind.log'
+    fi
 }
-trap kill_proxy EXIT
+trap kill_proxy ERR
 
 sleep 2
 
@@ -66,8 +68,14 @@ echo "\\----------------"
 run_test 20 20
 run_test 200 40
 
+
+kill $PROXY_PID
+wait $PROXY_PID || true
+
+if [[ "$VALGRIND" == "true" ]]; then
+    cat 'valgrind.log'
+fi
+
 echo "/----------------"
 echo "| All test are green"
 echo "\\----------------"
-
-kill $PROXY_PID

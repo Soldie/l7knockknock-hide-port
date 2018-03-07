@@ -27,7 +27,7 @@ test-normal: knock-ssh
 	(cd test && ./run-test.sh ../knock-ssh)
 
 test-splice: knock-ssh-splice
-	(cd test && ./run-test.sh ../knock-ssh-splice)
+	(cd test && ./run-test.sh ../knock-ssh-splice --valgrind)
 
 clean:
 	rm -f *.o knock-ssh knock-ssh-splice
