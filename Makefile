@@ -21,17 +21,18 @@ else
 	CFLAGS+=-O2 -DNDEBUG
 endif
 
-knock-ssh-splice: $(SPLICE_SOURCES)
+knock-ssh: $(SPLICE_SOURCES)
 	$(CC) $(CFLAGS) -o $@ $(SPLICE_SOURCES) $(LIBS)
 
 knock-ssh-libevent: $(LIBEV_SOURCES)
 	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent 
 
+
+test: knock-ssh
+	(cd test && ./run-test.sh ../knock-ssh --valgrind)
+
 test-libevent: knock-ssh-libevent
 	(cd test && ./run-test.sh ../knock-ssh-libevent --valgrind)
 
-test-splice: knock-ssh-splice
-	(cd test && ./run-test.sh ../knock-ssh-splice --valgrind)
-
 clean:
-	rm -f *.o knock-ssh knock-ssh-splice
+	rm -f *.o knock-ssh knock-ssh-libevent
