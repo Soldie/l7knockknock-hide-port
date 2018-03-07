@@ -3,10 +3,10 @@ compiler:clang
 
 addons:
   apt:
-      packages:
-        - make
-        - valgrind
-        - libevent-dev
+    packages:
+      - make
+      - valgrind
+      - libevent-dev
 
 install:
   - go get github.com/gosuri/uiprogress
