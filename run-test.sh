@@ -34,14 +34,15 @@ if [ $# -eq 2 ]; then
     fi
 fi
 if [[ "$VALGRIND" == "true" ]]; then
-    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
+    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=5000 --listenPort=6000 --proxyTimeout=4 --knockTimeout=1 -- HELLO 2> /dev/null &
 else
-    $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
+    $TARGET --normalPort=5000 --listenPort=6000 --proxyTimeout=4 --knockTimeout=1 HELLO 2> /dev/null &
 fi
 readonly PROXY_PID=$!
 
 kill_proxy() {
     kill $PROXY_PID || true
+    wait $PROXY_PID || true
     if [[ "$VALGRIND" == "true" ]]; then
         cat 'valgrind.log'
         rm 'valgrind.log' || true
@@ -75,6 +76,18 @@ echo "\\----------------"
 run_test 20 20
 run_test 200 40
 
+echo "" 
+echo "/----------------"
+echo "| Running time-out test cases"
+echo "\\----------------"
+echo " + Within the proxy window"
+go run "test/client.go" --port 6000  --connections 5 --parallel 4 --maxDelays 2 $HIDE_PROGRESS
+echo " + Sometimes outside the proxy window"
+go run "test/client.go" --port 6000  --connections 5 --parallel 4 --maxDelays 5 $HIDE_PROGRESS && rc=$? || rc=$?
+if [ $rc -ne 1 ]; then
+    echo "The timeouts outside the windows should have failed"
+    exit 1
+fi
 
 kill $PROXY_PID
 wait $PROXY_PID || true

@@ -25,6 +25,7 @@ func main() {
     parallel := flag.Int("parallel", 30, "Amount of parallel workers to run")
     cpuprofile := flag.String("cpuprofile", "", "write cpu profile to file")
     hide_progress := flag.Bool("hideProgress", false, "do not show progress bars")
+    maxDelays := flag.Int("maxDelays", 0, "Randomly add a delay of max x seconds")
     flag.Parse()
     if *cpuprofile != "" {
         f, err := os.Create(*cpuprofile)
@@ -51,7 +52,7 @@ func main() {
             my_prog := uiprogress.AddBar(*connections).AppendCompleted().PrependElapsed()
             prog = func() { my_prog.Incr() }
         }
-        go start_bashing(rand.Float32() >= 0.5, *port, *connections, prog, done)
+        go start_bashing(rand.Float32() >= 0.5, *port, *connections, *maxDelays, prog, done)
     }
 
     result := true
@@ -72,7 +73,7 @@ func main() {
 
 const MAX_SIZE = 512 * 1024
 
-func start_bashing(smallOnly bool, port int, connections int, progress func(), done chan bool) {
+func start_bashing(smallOnly bool, port int, connections int, delay int, progress func(), done chan bool) {
     max_request_size := MAX_SIZE
     if smallOnly {
         max_request_size = 128
@@ -94,11 +95,19 @@ func start_bashing(smallOnly bool, port int, connections int, progress func(), d
         }
         s.Flush()
 
+        if delay > 0 {
+            time.Sleep(time.Duration(rand.Int31n(int32(delay))) * time.Second)
+        }
+
         hasher := xxhash.New()
         _, err = io.CopyN(hasher, conn, wanted_size)
         if err != nil {
             fmt.Println("ERROR", err)
             os.Exit(1)
+        }
+
+        if delay > 0 {
+            time.Sleep(time.Duration(rand.Int31n(int32(delay))) * time.Second)
         }
 
         _, err = s.WriteString(hex.EncodeToString(hasher.Sum(nil)) + "\n")
@@ -108,10 +117,20 @@ func start_bashing(smallOnly bool, port int, connections int, progress func(), d
         }
         s.Flush()
 
+        if delay > 0 {
+            time.Sleep(time.Duration(rand.Int31n(int32(delay))) * time.Second)
+        }
+
         result := make([]byte, 4)
         _, err = io.ReadFull(conn, result)
         if err != nil {
             fmt.Println("ERROR", err)
+            os.Exit(1)
+        }
+
+        _, err = conn.Read(make([]byte, 1))
+        if err == nil {
+            println("Expected connection to be closed by now")
             os.Exit(1)
         }
         conn.Close()

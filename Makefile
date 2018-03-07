@@ -4,6 +4,8 @@ LIBS = -L. -L$(LIBEVENT)/lib
 LIBEV_SOURCES = knock-ssh.c proxy-libevent.c
 SPLICE_SOURCES = knock-ssh.c proxy-splice.c
 
+.PHONY: clean test test-libevent
+
 ifdef COVERAGE
 CFLAGS+=-O0 -coverage
 endif
@@ -28,7 +30,7 @@ knock-ssh-libevent: $(LIBEV_SOURCES)
 	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent 
 
 
-test: knock-ssh
+test: knock-ssh 
 	./run-test.sh ./knock-ssh --valgrind
 
 test-libevent: knock-ssh-libevent
