@@ -10,6 +10,7 @@ addons:
       - libevent-dev
 
 install:
+  - go version
   - go get github.com/gosuri/uiprogress
   - go get github.com/cespare/xxhash
 
