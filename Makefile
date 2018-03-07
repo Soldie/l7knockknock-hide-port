@@ -35,4 +35,4 @@ test-libevent: knock-ssh-libevent
 	./run-test.sh ./knock-ssh-libevent --valgrind
 
 clean:
-	rm -f *.o knock-ssh knock-ssh-libevent
+	rm -f *.o *.gcda *.gnco knock-ssh knock-ssh-libevent
