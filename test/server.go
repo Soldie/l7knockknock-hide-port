@@ -45,11 +45,9 @@ func main() {
         os.Exit(1)
     }
 
-    rand.Seed(time.Now().UnixNano())
-
     println("Filling random data")
     random_bytes := make([]byte, 1024*1024)
-    _, err = io.ReadFull(rand.New(rand.NewSource(int64(rand.Uint64()))), random_bytes)
+    _, err = io.ReadFull(rand.New(rand.NewSource(time.Now().UnixNano())), random_bytes)
     if err != nil {
         fmt.Println("ERROR", err)
         os.Exit(1)
