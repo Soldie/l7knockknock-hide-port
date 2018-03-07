@@ -29,10 +29,10 @@ knock-ssh-libevent: $(LIBEV_SOURCES)
 
 
 test: knock-ssh
-	(cd test && ./run-test.sh ../knock-ssh --valgrind)
+	./run-test.sh ./knock-ssh --valgrind
 
 test-libevent: knock-ssh-libevent
-	(cd test && ./run-test.sh ../knock-ssh-libevent --valgrind)
+	./run-test.sh ./knock-ssh-libevent --valgrind
 
 clean:
 	rm -f *.o knock-ssh knock-ssh-libevent

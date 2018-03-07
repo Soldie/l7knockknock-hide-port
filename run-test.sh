@@ -20,7 +20,7 @@ kill_descendant_processes() {
     fi
 }
 
-go run server.go --port 5000 &
+go run "test/server.go" --port 5000 &
 readonly SERVER_PID=$!
 kill_server() {
     kill $SERVER_PID
@@ -36,7 +36,7 @@ fi
 if [[ "$VALGRIND" == "true" ]]; then
     valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
 else
-    $TARGET --normalPort=5000 --listenPort=6000 HELLO > /dev/null &
+    $TARGET --normalPort=5000 --listenPort=6000 HELLO 2> /dev/null &
 fi
 readonly PROXY_PID=$!
 
@@ -44,6 +44,7 @@ kill_proxy() {
     kill $PROXY_PID || true
     if [[ "$VALGRIND" == "true" ]]; then
         cat 'valgrind.log'
+        rm 'valgrind.log' || true
     fi
 }
 trap kill_proxy ERR
@@ -57,7 +58,7 @@ if [ ! -z "${CI+x}" ]; then
     fi
 fi
 run_test() {
-    go run client.go --port 6000  --connections "$1" --parallel "$2" $HIDE_PROGRESS
+    go run "test/client.go" --port 6000  --connections "$1" --parallel "$2" $HIDE_PROGRESS
 }
 
 echo "" 
@@ -80,6 +81,7 @@ wait $PROXY_PID || true
 
 if [[ "$VALGRIND" == "true" ]]; then
     cat 'valgrind.log'
+    rm 'valgrind.log' || true
 fi
 
 echo "/----------------"
