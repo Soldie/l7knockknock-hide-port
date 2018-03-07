@@ -16,5 +16,6 @@ script:
   - make test COVERAGE=1 DEBUG=1
 
 after_success:
+  - cp test/*.gcno .
   - bash <(curl -s https://codecov.io/bash)
 
