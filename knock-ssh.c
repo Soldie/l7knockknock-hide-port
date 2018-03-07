@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <argp.h>
 
@@ -116,8 +117,14 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
     return 0;
 }
 
+void term_handler(int UNUSED(signum)) {
+    exit(0);
+}
+
 
 int main(int argc, char **argv) {
+    signal(SIGTERM, term_handler);
+
     fill_defaults();
 
     struct argp argp = {options, parse_opt, args_doc, doc, NULL, NULL, NULL};
