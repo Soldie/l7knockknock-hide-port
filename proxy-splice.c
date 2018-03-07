@@ -385,7 +385,7 @@ static void process_other_events(struct epoll_event *ev) {
         }
         return ;
     }
-    if (ev->events & (EPOLLIN | EPOLLOUT)) {
+    if (ev->events & EPOLLIN) {
         touch(proxy);
     }
     if (ev->events & EPOLLIN && proxy->in_op) {
