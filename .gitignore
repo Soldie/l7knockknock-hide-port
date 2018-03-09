@@ -41,9 +41,6 @@
 *.su
 *.idb
 *.pdb
-*.gcno
-*.gcda
-*.gcov
 
 # Kernel Module Compile Results
 *.mod*
@@ -55,7 +52,7 @@ Mkfile.old
 dkms.conf
 
 # app specific files
-knock-ssh
-knock-ssh-debug
-knock-ssh-splice
-knock-ssh-libevent
+*.gcno
+*.gcda
+*.gcov
+l7knockknock

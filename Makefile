@@ -1,10 +1,16 @@
-LIBEVENT ?= /usr/local
-CFLAGS+= -std=gnu99 -I. -I$(LIBEVENT)/include -Wall -Wpedantic -Wextra -D_GNU_SOURCE
-LIBS = -L. -L$(LIBEVENT)/lib 
-LIBEV_SOURCES = knock-ssh.c proxy-libevent.c
-SPLICE_SOURCES = knock-ssh.c proxy-splice.c
+CFLAGS+= -std=gnu99 -I. -Wall -Wpedantic -Wextra -D_GNU_SOURCE
+LIBS = -L.  
+SOURCES = l7knockknock.c proxy-splice.c
+MAIN_PROGRAM= l7knockknock
 
 .PHONY: clean test test-libevent
+
+ifdef USELIBEVENT
+SOURCES= l7knockknock.c proxy-libevent.c
+LIBEVENT ?= /usr/local # if not defined, default to homebrew folder
+LIBS+= -L$(LIBEVENT)/lib -levent
+CFLAGS+=-I$(LIBEVENT)/include 
+endif
 
 ifdef COVERAGE
 CFLAGS+=-O0 -coverage
@@ -23,18 +29,11 @@ else
 	CFLAGS+=-O2 -DNDEBUG
 endif
 
-knock-ssh: $(SPLICE_SOURCES)
-	$(CC) $(CFLAGS) -o $@ $(SPLICE_SOURCES) $(LIBS)
+$(MAIN_PROGRAM): $(SOURCES)
+	$(CC) $(CFLAGS) -o $@ $(SOURCES) $(LIBS)
 
-knock-ssh-libevent: $(LIBEV_SOURCES)
-	$(CC) $(CFLAGS) -o $@ $(LIBEV_SOURCES) $(LIBS) -levent 
-
-
-test: knock-ssh 
-	./run-test.sh ./knock-ssh --valgrind
-
-test-libevent: knock-ssh-libevent
-	./run-test.sh ./knock-ssh-libevent --valgrind
+test: $(MAIN_PROGRAM) 
+	./run-test.sh ./$(MAIN_PROGRAM) --valgrind
 
 clean:
-	rm -f *.o *.gcda *.gcno knock-ssh knock-ssh-libevent
+	rm -f *.o *.gcda *.gcno $(MAIN_PROGRAM)

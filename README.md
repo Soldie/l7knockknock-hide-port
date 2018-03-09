@@ -1,27 +1,32 @@
-# knock-ssh
+# l7knockknock: hiding one application behind another tcp port
 [![Build Status](https://travis-ci.org/DavyLandman/knock-ssh.svg?branch=master)](https://travis-ci.org/DavyLandman/knock-ssh) 
 [![codecov](https://codecov.io/gh/DavyLandman/knock-ssh/branch/master/graph/badge.svg)](https://codecov.io/gh/DavyLandman/knock-ssh)
 
-Hide an ssh service behind another tcp port. For example behind a https server (port 443). Only when you receive a certain piece of text (or bytes) will the ssh port be unlocked.
+Hide an tcp server behind another tcp server. For example, hiding SSH server behind a HTTPS server (port 443). This is a nice way to VPN yourself out of a restricted internet connection. Port knocking is not feasible as those special ports might be blocked too.
 
-A simplified alternative to port knocking, very handy for cases where your on restricted internet with only a few open ports.
+All connections to `l7knockknock` will automatically be proxied to the normal port, except when the first bytes of the connection match a special user chosen set of bytes. In that case, the connection is forwarded to the hidden server.
+
+Previously I was using a port multiplexer, but project such as shodan have discovered these hidden servers, and I started seeing multiple brute-force approaches. l7knockknock just adds a superficial layer of security by obscurity, so it won't make it that much safer for direct attacks, it just stops the broad scans of the whole internet.
+
+## Performance
+
+To increase performance of the proxying, l7knockknock uses splicing to get zero-copying performance. This means that there is almost no noticeable performance impact.
 
 ## Developing
 
-Since the api is quite linux specific, there is a custom docker image that can be used to build and run the knock-ssh application
+Since the API is quite Linux specific, there is a custom Docker image that can be used to build and test l7knockknock application
 
     # prepare docker image
-    docker build -t knock-ssh-build-env .
+    docker build -t l7knockknock-build-env .
 
     # run docker image on windows
-    docker run --rm -it -v "${PWD}:/root/build" knock-ssh-build-env
+    docker run --rm -it -v "${PWD}:/root/build" l7knockknock-build-env
 
     # run docker image on osx/linux
-    docker run --rm -it -v "$(pwd):/root/build" knock-ssh-build-env
+    docker run --rm -it -v "$(pwd):/root/build" l7knockknock-build-env
 
     # inside the container (starts with bash)
     make clean && make test-splice 
 
     # you can also pass `make test-splice` directly to the run command
-    docker run --rm -it -v "${PWD}:/root/build" knock-ssh-build-env make test-splice
-
+    docker run --rm -it -v "${PWD}:/root/build" l7knockknock-build-env make test-splice

@@ -196,7 +196,7 @@ static void initial_read(struct bufferevent *bev, void *ctx) {
     struct evbuffer_iovec v[1];
 	if (evbuffer_peek(input, config->knock_size, NULL, v, 1) == 1 && v[0].iov_len >= config->knock_size) {
         if (memcmp(config->knock_value, v[0].iov_base, config->knock_size) == 0) {
-			port = config->ssh_port;
+			port = config->hidden_port;
             evbuffer_drain(input, config->knock_size);
 		}
 	}

@@ -336,7 +336,7 @@ static void first_data(struct proxy* proxy) {
     uint32_t port = config->normal_port;
     if (bytes_read == config->knock_size) {
         if (memcmp(config->knock_value, tmp_buffer, config->knock_size) == 0) {
-            port = config->ssh_port;
+            port = config->hidden_port;
         }
     }
     if (port == config->normal_port) {

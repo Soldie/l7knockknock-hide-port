@@ -5,7 +5,7 @@
 struct config {
     uint32_t external_port;
     uint32_t normal_port;
-    uint32_t ssh_port;
+    uint32_t hidden_port;
     uint64_t max_recv_buffer;
     struct timeval default_timeout;
     struct timeval knock_timeout;
