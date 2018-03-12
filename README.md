@@ -1,6 +1,6 @@
 # l7knockknock: hiding one application behind another tcp port
-[![Build Status](https://travis-ci.org/DavyLandman/knock-ssh.svg?branch=master)](https://travis-ci.org/DavyLandman/knock-ssh) 
-[![codecov](https://codecov.io/gh/DavyLandman/knock-ssh/branch/master/graph/badge.svg)](https://codecov.io/gh/DavyLandman/knock-ssh)
+[![Build Status](https://travis-ci.org/DavyLandman/l7knockknock.svg?branch=master)](https://travis-ci.org/DavyLandman/l7knockknock) 
+[![codecov](https://codecov.io/gh/DavyLandman/l7knockknock/branch/master/graph/badge.svg)](https://codecov.io/gh/DavyLandman/l7knockknock)
 
 Hide an tcp server behind another tcp server. For example, hiding SSH server behind a HTTPS server (port 443). This is a nice way to VPN yourself out of a restricted internet connection. Port knocking is not feasible as those special ports might be blocked too.
 
