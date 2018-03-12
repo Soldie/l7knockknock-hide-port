@@ -15,6 +15,8 @@
 
 #include "knock-common.h"
 
+#define MAX_RECV_BUF_DEFAULT 1048576
+
 static struct config* config;
 
 /**
@@ -147,7 +149,7 @@ static void back_connection(struct bufferevent *bev, short events, void *ctx)
         bufferevent_setcb(other_side, pipe_read, NULL, pipe_error, ctxs[0]);
 
         bufferevent_setcb(bev, pipe_read, NULL, pipe_error, ctxs[1]);
-        bufferevent_setwatermark(bev, EV_READ, 0, config->max_recv_buffer);
+        bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF_DEFAULT);
         bufferevent_enable(bev, EV_READ);
 
 		bufferevent_set_timeouts(bev, &(config->default_timeout), NULL);
@@ -200,7 +202,7 @@ static void initial_read(struct bufferevent *bev, void *ctx) {
             evbuffer_drain(input, config->knock_size);
 		}
 	}
-    bufferevent_setwatermark(bev, EV_READ, 0, config->max_recv_buffer);
+    bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF_DEFAULT);
     bufferevent_disable(bev, EV_READ);
 	bufferevent_set_timeouts(bev, NULL, NULL);
     bufferevent_setcb(bev, NULL, NULL, pipe_error, NULL);
@@ -235,7 +237,7 @@ static void initial_accept(evutil_socket_t listener, short UNUSED(event), void *
         evutil_make_socket_nonblocking(fd);
         bev = bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE);
         bufferevent_setcb(bev, initial_read, NULL, initial_error, base);
-        bufferevent_setwatermark(bev, EV_READ, 0, config->max_recv_buffer);
+        bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF_DEFAULT);
         bufferevent_enable(bev, EV_READ);
 		bufferevent_set_timeouts(bev, &(config->knock_timeout), NULL);
     }

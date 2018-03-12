@@ -20,7 +20,6 @@
 #define EXT_PORT_DEFAULT 443
 #define HIDDEN_PORT_DEFAULT 22
 #define NORMAL_PORT_DEFAULT 8443
-#define MAX_RECV_BUF_DEFAULT 1048576
 #define DEFAULT_TIMEOUT_DEFAULT 30
 #define KNOCK_TIMEOUT_DEFAULT 2
 
@@ -44,7 +43,6 @@ static struct argp_option options[] =
     {"listenPort", 'p', "port", 0, "Port to listen on for new connections, default: " ASSTR(EXT_PORT_DEFAULT), 1},
     {"normalPort", 'n', "port", 0, "Port to forward HTTPS traffic to, default: " ASSTR(NORMAL_PORT_DEFAULT), 0},
     {"hiddenPort", 's', "port", 0, "Port to forward hidden traffic to, default: " ASSTR(HIDDEN_PORT_DEFAULT), 0},
-    {"bufferSize", 'b', "size", 0, "Maximum proxy buffer size (in bytes), default: " ASSTR(MAX_RECV_BUF_DEFAULT), 2},
     {"proxyTimeout", 'o', "seconds", 0, "Seconds before timeout is assumed and connection is closed, default: " ASSTR(DEFAULT_TIMEOUT_DEFAULT), 0},
     {"knockTimeout", 'k', "seconds", 0, "Seconds after which we assume no knock-knock will occur, default: " ASSTR(KNOCK_TIMEOUT_DEFAULT), 0},
     {0,0,0,0,0,0}
@@ -54,7 +52,6 @@ static void fill_defaults() {
     config.external_port = EXT_PORT_DEFAULT;
     config.normal_port = NORMAL_PORT_DEFAULT;
     config.hidden_port = HIDDEN_PORT_DEFAULT;
-    config.max_recv_buffer = MAX_RECV_BUF_DEFAULT;
     config.default_timeout.tv_sec = DEFAULT_TIMEOUT_DEFAULT;
     config.knock_timeout.tv_sec = KNOCK_TIMEOUT_DEFAULT;
     config.verbose = false;
@@ -90,9 +87,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
             break;
         case 's':
             PARSE_NUMBER(uint32_t, config.hidden_port, 1, 65536, arg, "Invalid port number", state)
-            break;
-        case 'b':
-            PARSE_NUMBER(size_t, config.max_recv_buffer, 1, 1<<31, arg, "Invalid buffer size", state)
             break;
         case 'o':
             PARSE_NUMBER(uint32_t, config.default_timeout.tv_sec, 1, 600, arg, "Invalid amount of seconds", state)
