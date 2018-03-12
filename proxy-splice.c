@@ -217,7 +217,9 @@ static void do_proxy(struct proxy* proxy) {
             }
             else {
                 LOG_D("ASYNC got connection error: %p %d\n", (void*)proxy, proxy->socket);
-                perror("Connection error (reading from socket to splice)"); \
+#ifdef DEBUG
+                perror("Connection error (splicing from socket to pipe)");
+#endif
                 should_close_proxy = true;
             }
         }
@@ -239,7 +241,9 @@ static void do_proxy(struct proxy* proxy) {
             }
             else {
                 LOG_D("ASYNC got connection error: %p %d\n", (void*)proxy, proxy->socket);
-                perror("Connection error (splicing from pipe to socket)"); \
+#ifdef DEBUG
+                perror("Connection error (splicing from pipe to socket)");
+#endif
                 should_close_proxy = true;
                 proxy->buffer_filled = 0; // signal that the data should be dropped
                 break;
