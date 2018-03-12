@@ -24,6 +24,7 @@ import (
 
 func main() {
     port := flag.Int("port", 4000, "Port to accept connections on.")
+    specialPort := flag.Int("specialPort", 4001, "Port to echo hello on.")
     cpuprofile := flag.String("cpuprofile", "", "write cpu profile to file")
     flag.Parse()
 
@@ -36,10 +37,16 @@ func main() {
         defer pprof.StopCPUProfile()
     }
 
-    c := make(chan os.Signal, 2)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+    sig_terms := make(chan os.Signal, 2)
+    signal.Notify(sig_terms, os.Interrupt, syscall.SIGTERM)
 
     l, err := net.Listen("tcp", ":" + strconv.Itoa(*port))
+    if err != nil {
+        fmt.Println("ERROR", err)
+        os.Exit(1)
+    }
+
+    l2, err := net.Listen("tcp", ":" + strconv.Itoa(*specialPort))
     if err != nil {
         fmt.Println("ERROR", err)
         os.Exit(1)
@@ -68,7 +75,20 @@ func main() {
         }
     }() // main function that handles new connections
 
-    <-c // on sigterm, quit running
+
+    go func() {
+        for  {
+            conn, err := l2.Accept()
+            if err != nil {
+                fmt.Println("ERROR", err)
+                continue
+            }
+            conn.Write([]byte("HELLO"))
+            conn.Close()
+        }
+    }()
+
+    <-sig_terms // on sigterm, quit running (helps with profiling information, and correct error reporting)
 }
 
 func Min(x, y int) int {

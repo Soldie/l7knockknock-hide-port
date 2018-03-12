@@ -5,6 +5,10 @@ set -o nounset -o errexit -o pipefail
 # don't split on spaces, only on lines
 IFS=$'\n\t'
 
+
+readonly TEST_PORT=5511
+readonly TEST_HIDDEN_PORT=5522
+readonly TEST_PROXY_PORT=6611
 readonly TARGET="$1"
 
 kill_descendant_processes() {
@@ -20,10 +24,10 @@ kill_descendant_processes() {
     fi
 }
 
-go run "test/server.go" --port 5000 &
+go run "test/server.go" --port $TEST_PORT --specialPort $TEST_HIDDEN_PORT &
 readonly SERVER_PID=$!
 kill_server() {
-    kill $SERVER_PID
+    kill $SERVER_PID || true
 }
 trap kill_server EXIT
 
@@ -34,9 +38,9 @@ if [ $# -eq 2 ]; then
     fi
 fi
 if [[ "$VALGRIND" == "true" ]]; then
-    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=5000 --listenPort=6000 --proxyTimeout=4 --knockTimeout=1 -- HELLO 2> /dev/null &
+    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=$TEST_PORT --listenPort=$TEST_PROXY_PORT --hiddenPort=$TEST_HIDDEN_PORT --proxyTimeout=4 --knockTimeout=1 PASSWORD 2> /dev/null &
 else
-    $TARGET --normalPort=5000 --listenPort=6000 --proxyTimeout=4 --knockTimeout=1 HELLO 2> /dev/null &
+    $TARGET --normalPort=$TEST_PORT --listenPort=$TEST_PROXY_PORT --hiddenPort=$TEST_HIDDEN_PORT --proxyTimeout=4 --knockTimeout=1 PASSWORD 2> /dev/null &
 fi
 readonly PROXY_PID=$!
 
@@ -59,8 +63,20 @@ if [ ! -z "${CI+x}" ]; then
     fi
 fi
 run_test() {
-    go run "test/client.go" --port 6000  --connections "$1" --parallel "$2" $HIDE_PROGRESS
+    go run "test/client.go" --port $TEST_PROXY_PORT  --connections "$1" --parallel "$2" $HIDE_PROGRESS
 }
+
+echo ""
+echo "/----------------"
+echo "| Testing hidden port"
+echo "\\----------------"
+HIDDEN_ANSWER=$(timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TEST_PROXY_PORT && echo -ne 'PASSWORD' >&3 && cat <&3")
+if [[ "$HIDDEN_ANSWER" != "HELLO" ]]; then
+    echo "Error, correct answer not received"
+    exit 1
+else
+    echo "OK"
+fi
 
 echo "" 
 echo "/----------------"
@@ -81,13 +97,14 @@ echo "/----------------"
 echo "| Running time-out test cases"
 echo "\\----------------"
 echo " + Within the proxy window"
-go run "test/client.go" --port 6000  --connections 5 --parallel 4 --maxDelays 2 $HIDE_PROGRESS
+go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --maxDelays 2 $HIDE_PROGRESS
 echo " + Sometimes outside the proxy window"
-go run "test/client.go" --port 6000  --connections 5 --parallel 4 --maxDelays 5 $HIDE_PROGRESS && rc=$? || rc=$?
+go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --maxDelays 10 $HIDE_PROGRESS && rc=$? || rc=$?
 if [ $rc -ne 1 ]; then
     echo "The timeouts outside the windows should have failed"
     exit 1
 fi
+
 
 kill $PROXY_PID
 wait $PROXY_PID || true
