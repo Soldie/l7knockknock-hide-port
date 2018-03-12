@@ -70,7 +70,7 @@ echo ""
 echo "/----------------"
 echo "| Testing hidden port"
 echo "\\----------------"
-HIDDEN_ANSWER=$(timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TEST_PROXY_PORT && echo -ne 'PASSWORD' >&3 && cat <&3")
+HIDDEN_ANSWER=$(timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TEST_PROXY_PORT && echo -ne 'PASSWORD' >&3 && cat <&3 && exec 3<&-")
 if [[ "$HIDDEN_ANSWER" != "HELLO" ]]; then
     echo "Error, correct answer not received"
     exit 1
@@ -104,6 +104,8 @@ if [ $rc -ne 1 ]; then
     echo "The timeouts outside the windows should have failed"
     exit 1
 fi
+echo " + Does the proxy still work?"
+run_test 100 20
 
 
 kill $PROXY_PID
