@@ -24,7 +24,7 @@ install:
   - go get github.com/cespare/xxhash
 
 script:
-  - make test COVERAGE=1 DEBUG=1
+  - make clean test COVERAGE=1 DEBUG=1
 
 after_success:
   - bash <(curl -s https://codecov.io/bash) -x "llvm-cov gcov"
