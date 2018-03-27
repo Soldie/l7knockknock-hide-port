@@ -12,10 +12,10 @@ addons:
       description: "l7 knock knock hidden proxy"
     notification_email: davy.landman@gmail.com
     build_command: make 
-    branch_pattern: coverity_scan
+    branch_pattern: coverity-scan
 
 before_install:
-  - echo -n | openssl s_client -connect https://scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
+  - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
 
 
 install:
