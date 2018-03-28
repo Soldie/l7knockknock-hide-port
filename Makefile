@@ -3,6 +3,12 @@ LIBS = -L.
 SOURCES = l7knockknock.c proxy-splice.c
 MAIN_PROGRAM= l7knockknock
 
+UNAME_S := $(shell uname -s)
+ifneq ($(UNAME_S),Linux)
+USELIBEVENT = 1
+endif
+
+
 .PHONY: clean test test-libevent
 
 ifdef USELIBEVENT

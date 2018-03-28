@@ -1,5 +1,8 @@
 language: c
 compiler: clang
+os:
+  - linux
+  - osx
 
 addons:
   apt:
@@ -12,10 +15,11 @@ addons:
       description: "l7 knock knock hidden proxy"
     notification_email: davy.landman@gmail.com
     build_command: make 
-    branch_pattern: coverity_scan
+    branch_pattern: coverity-scan
 
 before_install:
-  - echo -n | openssl s_client -connect https://scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
+  - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update && brew install libevent valgrind go; fi
 
 
 install:
@@ -24,7 +28,7 @@ install:
   - go get github.com/cespare/xxhash
 
 script:
-  - make test COVERAGE=1 DEBUG=1
+  - make clean test COVERAGE=1 DEBUG=1
 
 after_success:
   - bash <(curl -s https://codecov.io/bash) -x "llvm-cov gcov"
