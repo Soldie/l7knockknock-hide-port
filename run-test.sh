@@ -105,6 +105,8 @@ go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --
 if [ $rc -ne 1 ]; then
     echo "The timeouts outside the windows should have failed"
     exit 1
+else
+    echo "OK"
 fi
 echo " + Does the proxy still work?"
 run_test 100 20
