@@ -6,6 +6,8 @@ set -o nounset -o errexit -o pipefail
 IFS=$'\n\t'
 
 
+readonly GLOBAL_TIMEOUT=4
+readonly KNOCK_TIMEOUT=1
 readonly TEST_PORT=5511
 readonly TEST_HIDDEN_PORT=5522
 readonly TEST_PROXY_PORT=6611
@@ -38,9 +40,9 @@ if [ $# -eq 2 ]; then
     fi
 fi
 if [[ "$VALGRIND" == "true" ]]; then
-    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=$TEST_PORT --listenPort=$TEST_PROXY_PORT --hiddenPort=$TEST_HIDDEN_PORT --proxyTimeout=4 --knockTimeout=1 PASSWORD 2> /dev/null &
+    valgrind --log-file='valgrind.log' -v --leak-check=full --show-leak-kinds=all $TARGET --normalPort=$TEST_PORT --listenPort=$TEST_PROXY_PORT --hiddenPort=$TEST_HIDDEN_PORT --proxyTimeout=$GLOBAL_TIMEOUT --knockTimeout=$KNOCK_TIMEOUT PASSWORD 2> /dev/null &
 else
-    $TARGET --normalPort=$TEST_PORT --listenPort=$TEST_PROXY_PORT --hiddenPort=$TEST_HIDDEN_PORT --proxyTimeout=4 --knockTimeout=1 PASSWORD 2> /dev/null &
+    $TARGET --normalPort=$TEST_PORT --listenPort=$TEST_PROXY_PORT --hiddenPort=$TEST_HIDDEN_PORT --proxyTimeout=$GLOBAL_TIMEOUT --knockTimeout=$KNOCK_TIMEOUT PASSWORD 2> /dev/null &
 fi
 readonly PROXY_PID=$!
 
@@ -97,9 +99,9 @@ echo "/----------------"
 echo "| Running time-out test cases"
 echo "\\----------------"
 echo " + Within the proxy window"
-go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --maxDelays 2 $HIDE_PROGRESS
+go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --maxDelays $(( $GLOBAL_TIMEOUT / 2 )) $HIDE_PROGRESS
 echo " + Sometimes outside the proxy window"
-go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --maxDelays 10 $HIDE_PROGRESS && rc=$? || rc=$?
+go run "test/client.go" --port $TEST_PROXY_PORT  --connections 5 --parallel 4 --maxDelays $(( $GLOBAL_TIMEOUT * 2 )) $HIDE_PROGRESS && rc=$? || rc=$?
 if [ $rc -ne 1 ]; then
     echo "The timeouts outside the windows should have failed"
     exit 1
@@ -107,13 +109,21 @@ fi
 echo " + Does the proxy still work?"
 run_test 100 20
 
+echo "Waiting for all timeouts to pass, so that all memory is freed, and Valgrind will only report true leaks"
+sleep $(( $GLOBAL_TIMEOUT + 2 ))
 
 kill $PROXY_PID
 wait $PROXY_PID || true
 
 if [[ "$VALGRIND" == "true" ]]; then
     cat 'valgrind.log'
-    rm 'valgrind.log' || true
+    if grep -q "ERROR SUMMARY: 0 errors" 'valgrind.log'; then
+        echo "Valgrind: OK"
+        rm 'valgrind.log' || true
+    else
+        echo "Valgrind: Fail, reported errors"
+        exit 1
+    fi
 fi
 
 echo "/----------------"
