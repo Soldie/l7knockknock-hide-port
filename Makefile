@@ -13,7 +13,8 @@ endif
 
 ifdef USELIBEVENT
 SOURCES= l7knockknock.c proxy-libevent.c
-LIBEVENT ?= /usr/local # if not defined, default to homebrew folder
+# if not defined, default to homebrew folder
+LIBEVENT ?= /usr/local
 LIBS+= -L$(LIBEVENT)/lib -levent
 CFLAGS+=-I$(LIBEVENT)/include 
 endif
