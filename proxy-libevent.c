@@ -245,9 +245,11 @@ static void initial_accept(evutil_socket_t listener, short UNUSED(event), void *
 }
 
 static struct event_base *__base;
+static struct event *__listener_event;
 
 void cleanup_buffers(int UNUSED(signum)) {
 	event_base_free(__base);
+    event_free(__listener_event);
     exit(0);
 }
 
@@ -258,7 +260,6 @@ int start(struct config* _config) {
 
     evutil_socket_t listener;
     struct sockaddr_in sin;
-    struct event *listener_event;
 
     __base = event_base_new();
     if (!__base)
@@ -288,9 +289,9 @@ int start(struct config* _config) {
         return 1;
     }
 
-    listener_event = event_new(__base, listener, EV_READ|EV_PERSIST, initial_accept, (void*)__base);
+    __listener_event = event_new(__base, listener, EV_READ|EV_PERSIST, initial_accept, (void*)__base);
 
-    event_add(listener_event, NULL);
+    event_add(__listener_event, NULL);
 
     event_base_dispatch(__base);
     return 0;
