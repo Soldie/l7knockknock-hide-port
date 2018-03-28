@@ -178,25 +178,6 @@ static void handle_normal_timeout(struct proxy* this) {
     }
 }
 
-
-#define CHECK_ASYNC_RESULTS(__result, __proxy, __msg) { \
-    if (__result == -1u && (errno == EAGAIN || errno == EWOULDBLOCK)) { \
-        return; \
-    } \
-    else if (__result == -1u) { \
-        LOG_D("ASYNC got connection error: %p %d\n", (void*)__proxy, __proxy->socket); \
-        close_and_free_proxy(__proxy); \
-        perror("Connection error ("__msg")"); \
-        return; \
-    } \
-    else if (__result == 0) { \
-        LOG_D("ASYNC got EOS: %p %d\n", (void*)__proxy, __proxy->socket); \
-        close_and_free_proxy(__proxy); \
-        return; \
-    } \
-}
-
-
 #define MAX_SPLICE_CHUNK (64*1024)
 
 static void do_proxy(struct proxy* proxy) {
@@ -335,7 +316,19 @@ static void first_data(struct proxy* proxy) {
 
     uint8_t* tmp_buffer = malloc(config->knock_size);
     size_t bytes_read = read(proxy->socket, tmp_buffer, config->knock_size);
-    CHECK_ASYNC_RESULTS(bytes_read, proxy, "Reading initial data from remote");
+    if (bytes_read == -1u && errno != EAGAIN && errno != EWOULDBLOCK) {
+        LOG_D("Got connection error before first read: %p %d\n", (void*)proxy, proxy->socket);
+        free(tmp_buffer);
+        close_and_free_proxy(proxy);
+        perror("Connection error: (Reading initial data from remote)");
+        return;
+    }
+    if (bytes_read == 0) {
+        LOG_D("Got EOS before first read: %p %d\n", (void*)proxy, proxy->socket); 
+        free(tmp_buffer);
+        close_and_free_proxy(proxy);
+        return;
+    }
 
     uint32_t port = config->normal_port;
     if (bytes_read == config->knock_size) {
