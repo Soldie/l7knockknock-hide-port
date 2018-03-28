@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <signal.h>
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -15,7 +16,7 @@
 
 #include "knock-common.h"
 
-#define MAX_RECV_BUF_DEFAULT 1048576
+#define MAX_RECV_BUF_DEFAULT 2 << 16
 
 static struct config* config;
 
@@ -243,17 +244,24 @@ static void initial_accept(evutil_socket_t listener, short UNUSED(event), void *
     }
 }
 
+static struct event_base *__base;
+
+void cleanup_buffers(int UNUSED(signum)) {
+	event_base_free(__base);
+    exit(0);
+}
+
 int start(struct config* _config) {
+    signal(SIGTERM, cleanup_buffers);
     config = _config;
     setvbuf(stdout, NULL, _IONBF, 0);
 
     evutil_socket_t listener;
     struct sockaddr_in sin;
-    struct event_base *base;
     struct event *listener_event;
 
-    base = event_base_new();
-    if (!base)
+    __base = event_base_new();
+    if (!__base)
         return 1; 
 
     sin.sin_family = AF_INET;
@@ -280,11 +288,10 @@ int start(struct config* _config) {
         return 1;
     }
 
-    listener_event = event_new(base, listener, EV_READ|EV_PERSIST, initial_accept, (void*)base);
+    listener_event = event_new(__base, listener, EV_READ|EV_PERSIST, initial_accept, (void*)__base);
 
     event_add(listener_event, NULL);
 
-    event_base_dispatch(base);
-	event_base_free(base);
+    event_base_dispatch(__base);
     return 0;
 }
