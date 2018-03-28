@@ -6,6 +6,7 @@ set -o nounset -o errexit -o pipefail
 IFS=$'\n\t'
 
 
+readonly FACTOR=${SPEED_FACTOR:-10}
 readonly GLOBAL_TIMEOUT=4
 readonly KNOCK_TIMEOUT=1
 readonly TEST_PORT=5511
@@ -84,15 +85,15 @@ echo ""
 echo "/----------------"
 echo "| Running single threaded test case"
 echo "\\----------------"
-run_test 20 1
-run_test 200 1
+run_test $(( 2 * $FACTOR )) 1
+run_test $(( 20 * $FACTOR )) 1
 
 echo "" 
 echo "/----------------"
 echo "| Running multi-threaded test case"
 echo "\\----------------"
-run_test 20 20
-run_test 200 40
+run_test $(( 2 * $FACTOR )) 20
+run_test $(( 20 * $FACTOR )) 40
 
 echo "" 
 echo "/----------------"
@@ -109,7 +110,7 @@ else
     echo "OK"
 fi
 echo " + Does the proxy still work?"
-run_test 100 20
+run_test $(( 5 * $FACTOR )) 20
 
 echo "Waiting for all timeouts to pass, so that all memory is freed, and Valgrind will only report true leaks"
 sleep $(( $GLOBAL_TIMEOUT + 2 ))
