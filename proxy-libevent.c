@@ -248,8 +248,9 @@ static struct event_base *__base;
 static struct event *__listener_event;
 
 void cleanup_buffers(int UNUSED(signum)) {
-	event_base_free(__base);
+    event_del(__listener_event);
     event_free(__listener_event);
+	event_base_free(__base);
     exit(0);
 }
 
