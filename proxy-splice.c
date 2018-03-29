@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <time.h>
+#include <signal.h>
 
 
 #include <netinet/in.h>
@@ -37,7 +38,6 @@ struct proxy;
 typedef void (*ProxyCall)(struct proxy* this);
 
 struct proxy {
-    int epoll_queue;
     int socket;
     struct proxy* other;
     bool timed_out;
@@ -53,6 +53,8 @@ struct proxy {
     struct proxy* next;
     struct proxy* previous;
 };
+
+static int _epoll_queue = -1;
 
 enum { READ = 0, WRITE = 1 };
 
@@ -123,14 +125,14 @@ static void non_block(int fd) {
     fcntl(fd, F_SETFL, flags | O_NONBLOCK | O_CLOEXEC);
 }
 
-static bool add_to_queue(int epoll_queue, int socket, void* data) {
+static bool add_to_queue(int socket, void* data) {
     struct epoll_event ev;
 #ifdef DEBUG
     memset(&ev, 0, sizeof(struct epoll_event));
 #endif
     ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
     ev.data.ptr = data;
-    if (epoll_ctl(epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
+    if (epoll_ctl(_epoll_queue, EPOLL_CTL_ADD, socket, &ev) < 0) {
         perror("cannot connect epoll to just created socket");
         return false;
     }
@@ -141,7 +143,7 @@ static void close_and_free_proxy(struct proxy* proxy) {
     if (!proxy->closed) {
         LOG_D("closing: %p %d\n", (void*)proxy, proxy->socket);
 
-        epoll_ctl(proxy->epoll_queue, EPOLL_CTL_DEL, proxy->socket, NULL);
+        epoll_ctl(_epoll_queue, EPOLL_CTL_DEL, proxy->socket, NULL);
         close(proxy->socket);
         proxy->closed = true;
 
@@ -291,7 +293,6 @@ static void setup_back_connection(struct proxy* proxy, uint32_t port) {
 
     struct proxy *back_proxy = malloc(sizeof(struct proxy));
     back_proxy->closed = false;
-    back_proxy->epoll_queue = proxy->epoll_queue;
     back_proxy->socket = back_proxy_socket;
     back_proxy->other = proxy;
     proxy->other = back_proxy;
@@ -302,7 +303,7 @@ static void setup_back_connection(struct proxy* proxy, uint32_t port) {
     back_proxy->in_op = NULL;
 
     add_new_timeout_queue(back_proxy);
-    if (!add_to_queue(proxy->epoll_queue, back_proxy_socket, back_proxy)) {
+    if (!add_to_queue(back_proxy_socket, back_proxy)) {
         close_and_free_proxy(proxy);
         return;
     }
@@ -396,7 +397,7 @@ static void process_other_events(struct epoll_event *ev) {
     }
 }
 
-static bool initialize(struct sockaddr_in *listen_address, int* epoll_queue, int* listen_socket) {
+static bool initialize(struct sockaddr_in *listen_address, int* listen_socket) {
     *listen_socket = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (*listen_socket < 0) {
         perror("cannot open socket");
@@ -416,28 +417,44 @@ static bool initialize(struct sockaddr_in *listen_address, int* epoll_queue, int
         return false;
     }
 
-    *epoll_queue = epoll_create1(EPOLL_CLOEXEC);
-    if (*epoll_queue < 0) {
+    _epoll_queue = epoll_create1(EPOLL_CLOEXEC);
+    if (_epoll_queue < 0) {
         perror("cannot create epoll queue");
         return false;
     }
 
-    return add_to_queue(*epoll_queue, *listen_socket, NULL);
+    return add_to_queue(*listen_socket, NULL);
+}
+
+static int _listen_socket = -1;
+
+static void close_down_nicely() {
+    if (_epoll_queue != -1) {
+        close(_epoll_queue);
+    }
+    if (_listen_socket != -1) {
+        close(_listen_socket);
+    }
+}
+
+void cleanup_buffers(int UNUSED(signum)) {
+    close_down_nicely();
+    exit(0);
 }
 
 int start(struct config* _config) {
     config = _config;
-    setvbuf(stdout, NULL, _IONBF, 0);
+
+    signal(SIGTERM, cleanup_buffers);
 
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = 0;
     sin.sin_port = htons(config->external_port);
 
-    int epoll_queue;
-    int listen_socket;
-    if (!initialize(&sin, &epoll_queue, &listen_socket)) {
+    if (!initialize(&sin, &_listen_socket)) {
         perror("Cannot initialize epoll queue");
+        close_down_nicely();
         return -1;
     }
 
@@ -446,9 +463,10 @@ int start(struct config* _config) {
     memset(&events, 0, MAX_EVENTS * sizeof(struct epoll_event));
 #endif
     for (;;) {
-        int nfds = epoll_wait(epoll_queue, events, MAX_EVENTS, -1);
+        int nfds = epoll_wait(_epoll_queue, events, MAX_EVENTS, -1);
         if (nfds == -1) {
             perror("epoll_wait failure");
+            close_down_nicely();
             return -1;
         }
         // get the current time stamp
@@ -463,7 +481,7 @@ int start(struct config* _config) {
                 if (current_event->events & EPOLLIN) {
                     // one or more new connections
                     while (true) {
-                        int conn_sock = accept(listen_socket, NULL, NULL);
+                        int conn_sock = accept(_listen_socket, NULL, NULL);
                         if (conn_sock == -1) {
                             if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                                 // done with handling new connections
@@ -477,7 +495,6 @@ int start(struct config* _config) {
 
                         struct proxy* data = malloc(sizeof(struct proxy));
                         data->closed = false;
-                        data->epoll_queue = epoll_queue;
                         data->socket = conn_sock;
                         data->other = NULL;
                         data->timed_out = false;
@@ -485,7 +502,7 @@ int start(struct config* _config) {
                         data->buffer_filled = 0;
                         data->out_op = NULL;
                         data->in_op = first_data;
-                        if (!add_to_queue(epoll_queue, conn_sock, data)) {
+                        if (!add_to_queue(conn_sock, data)) {
                             close(conn_sock);
                             close(data->buffer[READ]);
                             close(data->buffer[WRITE]);
