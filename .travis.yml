@@ -4,7 +4,7 @@ compiler: clang
 jobs:
   include:
     - env: NOLIBEVENT=1
-    - if: branch != scan-coverity
+    - if: branch != coverity-scan
       env: USELIBEVENT=1 SPEED_FACTOR=2
 
 addons:
