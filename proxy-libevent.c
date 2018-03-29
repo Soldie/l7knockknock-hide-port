@@ -68,7 +68,9 @@ struct otherside {
 static void set_tcp_no_delay(evutil_socket_t fd)
 {
 	int one = 1;
-	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) != 0) {
+        perror("setsockopt/no_delay");
+    }
 }
 
 
@@ -271,6 +273,10 @@ int start(struct config* _config) {
     sin.sin_port = htons(config->external_port);
 
     listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == -1) {
+	    event_base_free(__base);
+        return 1;
+    }
     evutil_make_socket_nonblocking(listener);
 
 #ifndef WIN32
