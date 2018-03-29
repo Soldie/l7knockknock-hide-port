@@ -60,15 +60,15 @@ static struct config* config;
  *   
  */
 struct otherside {
-	struct bufferevent* bev;
-	struct otherside* pair;
-	bool other_timedout;
+    struct bufferevent* bev;
+    struct otherside* pair;
+    bool other_timedout;
 };
 
 static void set_tcp_no_delay(evutil_socket_t fd)
 {
-	int one = 1;
-	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) != 0) {
+    int one = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one) != 0) {
         perror("setsockopt/no_delay");
     }
 }
@@ -78,46 +78,46 @@ static void set_tcp_no_delay(evutil_socket_t fd)
  * active pipe
  */
 static void pipe_read(struct bufferevent *bev, void *ctx) {
-	struct otherside* con = ctx;
-	if (con->bev) {
-		con->pair->other_timedout = false;
-		bufferevent_read_buffer(bev, bufferevent_get_output(con->bev));
-	}
-	else {
-		evbuffer_drain(bufferevent_get_input(bev), SIZE_MAX);
-	}
+    struct otherside* con = ctx;
+    if (con->bev) {
+        con->pair->other_timedout = false;
+        bufferevent_read_buffer(bev, bufferevent_get_output(con->bev));
+    }
+    else {
+        evbuffer_drain(bufferevent_get_input(bev), SIZE_MAX);
+    }
 }
 
 static void pipe_error(struct bufferevent *bev, short error, void *ctx)
 {
-	struct otherside* con = ctx;
+    struct otherside* con = ctx;
     if (error & BEV_EVENT_TIMEOUT) {
-		/* re-enable reading and writing to detect future timeouts */
+        /* re-enable reading and writing to detect future timeouts */
         bufferevent_enable(bev, EV_READ);
-		if (con->bev) {
-			con->pair->other_timedout = true;
-			if (!con->other_timedout) {
-				/* 
-				 * the other side didn't time-out yet, let's just flag our timeout
-				 */
-				return;
-			}
-		}
+        if (con->bev) {
+            con->pair->other_timedout = true;
+            if (!con->other_timedout) {
+                /* 
+                 * the other side didn't time-out yet, let's just flag our timeout
+                 */
+                return;
+            }
+        }
     }
     bufferevent_free(bev);
-	if (con->bev) {
-		/*
-		 let the back connection (whichever direction) finish writing it's buffers.
-		 But then timeout, but make sure the ctx is changed to avoid writing stuff to a
-		 freed buffer.
-		 */
-		struct timeval ones = { 1, 0};
-		bufferevent_set_timeouts(con->bev, &ones, &ones);
+    if (con->bev) {
+        /*
+         let the back connection (whichever direction) finish writing it's buffers.
+         But then timeout, but make sure the ctx is changed to avoid writing stuff to a
+         freed buffer.
+         */
+        struct timeval ones = { 1, 0};
+        bufferevent_set_timeouts(con->bev, &ones, &ones);
         bufferevent_enable(con->bev, EV_READ);
-		con->pair->pair = NULL;
-		con->pair->bev = NULL;
-	}
-	free(con);
+        con->pair->pair = NULL;
+        con->pair->bev = NULL;
+    }
+    free(con);
 }
 
 /**
@@ -125,44 +125,44 @@ static void pipe_error(struct bufferevent *bev, short error, void *ctx)
  */
 
 static struct otherside** create_contexts(struct bufferevent *forward, struct bufferevent *backward) {
-	struct otherside **result = calloc(2, sizeof(struct otherside*));
-	result[0] = malloc(sizeof(struct otherside));
-	result[1] = malloc(sizeof(struct otherside));
-	result[0]->bev = backward;
-	result[0]->pair = result[1];
-	result[0]->other_timedout = false;
-	result[1]->bev = forward;
-	result[1]->pair = result[0];
-	result[1]->other_timedout = false;
-	return result;
+    struct otherside **result = calloc(2, sizeof(struct otherside*));
+    result[0] = malloc(sizeof(struct otherside));
+    result[1] = malloc(sizeof(struct otherside));
+    result[0]->bev = backward;
+    result[0]->pair = result[1];
+    result[0]->other_timedout = false;
+    result[1]->bev = forward;
+    result[1]->pair = result[0];
+    result[1]->other_timedout = false;
+    return result;
 }
 
 static void back_connection(struct bufferevent *bev, short events, void *ctx)
 {
-	struct bufferevent* other_side = ctx;
+    struct bufferevent* other_side = ctx;
     if (events & BEV_EVENT_CONNECTED) {
-		struct otherside **ctxs = create_contexts(other_side, bev);
-		evutil_socket_t fd = bufferevent_getfd(bev);
-		set_tcp_no_delay(fd);
+        struct otherside **ctxs = create_contexts(other_side, bev);
+        evutil_socket_t fd = bufferevent_getfd(bev);
+        set_tcp_no_delay(fd);
 
 
-    	bufferevent_enable(other_side, EV_READ);
-		/* pipe already available data to backend */
-		bufferevent_read_buffer(other_side, bufferevent_get_output(bev));
+        bufferevent_enable(other_side, EV_READ);
+        /* pipe already available data to backend */
+        bufferevent_read_buffer(other_side, bufferevent_get_output(bev));
         bufferevent_setcb(other_side, pipe_read, NULL, pipe_error, ctxs[0]);
 
         bufferevent_setcb(bev, pipe_read, NULL, pipe_error, ctxs[1]);
         bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF_DEFAULT);
         bufferevent_enable(bev, EV_READ);
 
-		bufferevent_set_timeouts(bev, &(config->default_timeout), NULL);
-		bufferevent_set_timeouts(other_side, &(config->default_timeout), NULL);
-		free(ctxs);
+        bufferevent_set_timeouts(bev, &(config->default_timeout), NULL);
+        bufferevent_set_timeouts(other_side, &(config->default_timeout), NULL);
+        free(ctxs);
     } else if (events & BEV_EVENT_ERROR) {
-		bufferevent_free(bev);
-		if (other_side) {
-			bufferevent_free(other_side);
-		}
+        bufferevent_free(bev);
+        if (other_side) {
+            bufferevent_free(other_side);
+        }
     }
 }
 
@@ -182,9 +182,9 @@ static void create_pipe(struct event_base *base, struct bufferevent *other_side,
     if (bufferevent_socket_connect(bev, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
         /* Error starting connection */
         bufferevent_free(bev);
-		if (other_side) {
-			bufferevent_free(other_side);
-		}
+        if (other_side) {
+            bufferevent_free(other_side);
+        }
     }
 }
 
@@ -193,33 +193,33 @@ static void create_pipe(struct event_base *base, struct bufferevent *other_side,
  */
 
 static void initial_read(struct bufferevent *bev, void *ctx) {
- 	struct event_base *base = ctx;
+     struct event_base *base = ctx;
     struct evbuffer *input = bufferevent_get_input(bev);
-	uint32_t port = config->normal_port;
+    uint32_t port = config->normal_port;
 
-	/* lets peek at the first byte */
+    /* lets peek at the first byte */
     struct evbuffer_iovec v[1];
-	if (evbuffer_peek(input, config->knock_size, NULL, v, 1) == 1 && v[0].iov_len >= config->knock_size) {
+    if (evbuffer_peek(input, config->knock_size, NULL, v, 1) == 1 && v[0].iov_len >= config->knock_size) {
         if (memcmp(config->knock_value, v[0].iov_base, config->knock_size) == 0) {
-			port = config->hidden_port;
+            port = config->hidden_port;
             evbuffer_drain(input, config->knock_size);
-		}
-	}
+        }
+    }
     bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF_DEFAULT);
     bufferevent_disable(bev, EV_READ);
-	bufferevent_set_timeouts(bev, NULL, NULL);
+    bufferevent_set_timeouts(bev, NULL, NULL);
     bufferevent_setcb(bev, NULL, NULL, pipe_error, NULL);
-	create_pipe(base, bev, port);
+    create_pipe(base, bev, port);
 }
 
 static void initial_error(struct bufferevent *bev, short error, void *ctx) {
     if (error & BEV_EVENT_TIMEOUT) {
-		/* nothing received so must be a ssh client */
+        /* nothing received so must be a ssh client */
         if (config->verbose) {
-		    printf("Nothing received, timeout, assuming https\n");
+            printf("Nothing received, timeout, assuming https\n");
         }
-		initial_read(bev, ctx);
-		return;
+        initial_read(bev, ctx);
+        return;
     }
     bufferevent_setcb(bev, NULL, NULL, NULL, NULL);
     bufferevent_free(bev);
@@ -242,7 +242,7 @@ static void initial_accept(evutil_socket_t listener, short UNUSED(event), void *
         bufferevent_setcb(bev, initial_read, NULL, initial_error, base);
         bufferevent_setwatermark(bev, EV_READ, 0, MAX_RECV_BUF_DEFAULT);
         bufferevent_enable(bev, EV_READ);
-		bufferevent_set_timeouts(bev, &(config->knock_timeout), NULL);
+        bufferevent_set_timeouts(bev, &(config->knock_timeout), NULL);
     }
 }
 
@@ -252,7 +252,7 @@ static struct event *__listener_event;
 void cleanup_buffers(int UNUSED(signum)) {
     event_del(__listener_event);
     event_free(__listener_event);
-	event_base_free(__base);
+    event_base_free(__base);
     exit(0);
 }
 
@@ -274,7 +274,7 @@ int start(struct config* _config) {
 
     listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener == -1) {
-	    event_base_free(__base);
+        event_base_free(__base);
         return 1;
     }
     evutil_make_socket_nonblocking(listener);
@@ -282,12 +282,17 @@ int start(struct config* _config) {
 #ifndef WIN32
     {
         int one = 1;
-        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+        if (setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) != 0) {
+            perror("setsockopt/reuse_addr");
+        }
     }
 #endif
 
     if (bind(listener, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
         perror("bind");
+        close(listener);
+        event_base_free(__base);
         return 1;
     }
 
