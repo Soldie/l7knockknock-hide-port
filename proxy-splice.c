@@ -77,7 +77,7 @@ static void touch(struct proxy* this) {
 
     timeout_queue_head = this;
     this->previous = NULL;
-    this->next = old_head; 
+    this->next = old_head;
     if (old_head) {
         old_head->previous = this;
     }
@@ -190,7 +190,7 @@ static void do_proxy(struct proxy* proxy) {
         // read everything we can fit into the pipe buffer
         ssize_t bytes_read = splice(proxy->socket, NULL, proxy->buffer[WRITE], NULL, MAX_SPLICE_CHUNK, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (bytes_read == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) { 
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 bytes_read = 0; // expected end of non_blocking splice
             }
             else {
@@ -214,7 +214,7 @@ static void do_proxy(struct proxy* proxy) {
         // splice stuff from pipe to target socket
         ssize_t bytes_written = splice(proxy->buffer[READ], NULL, proxy->other->socket, NULL, MIN(proxy->buffer_filled, MAX_SPLICE_CHUNK), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (bytes_written == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) { 
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break; // target not ready to receive more bytes
             }
             else {
@@ -320,7 +320,7 @@ static void first_data(struct proxy* proxy) {
         return;
     }
     if (bytes_read == 0) {
-        LOG_D("Got EOS before first read: %p %d\n", (void*)proxy, proxy->socket); 
+        LOG_D("Got EOS before first read: %p %d\n", (void*)proxy, proxy->socket);
         free(tmp_buffer);
         close_and_free_proxy(proxy);
         return;
