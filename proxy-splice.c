@@ -332,7 +332,7 @@ static void first_data(struct proxy* proxy) {
             port = config->hidden_port;
         }
     }
-    if (port == config->normal_port) {
+    if (port == config->normal_port && bytes_read > 0) {
         // copy stuff we read to the pipe
         write(proxy->buffer[WRITE], tmp_buffer, bytes_read);
         proxy->buffer_filled += bytes_read;
