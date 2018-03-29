@@ -120,11 +120,6 @@ static void remove_from_timeout_queue(struct proxy* this) {
     }
 }
 
-static void non_block(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK | O_CLOEXEC);
-}
-
 static bool add_to_queue(int socket, void* data) {
     struct epoll_event ev;
 #ifdef DEBUG
@@ -481,7 +476,7 @@ int start(struct config* _config) {
                 if (current_event->events & EPOLLIN) {
                     // one or more new connections
                     while (true) {
-                        int conn_sock = accept(_listen_socket, NULL, NULL);
+                        int conn_sock = accept4(_listen_socket, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
                         if (conn_sock == -1) {
                             if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                                 // done with handling new connections
@@ -491,7 +486,6 @@ int start(struct config* _config) {
                                 break;
                             }
                         }
-                        non_block(conn_sock);
 
                         struct proxy* data = malloc(sizeof(struct proxy));
                         data->closed = false;
