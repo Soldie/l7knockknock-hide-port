@@ -289,6 +289,7 @@ static void setup_back_connection(struct proxy* proxy, uint32_t port) {
     struct proxy *back_proxy = malloc(sizeof(struct proxy));
     if (!back_proxy) {
         perror("Cannot allocate memory for back proxy");
+        close(back_proxy_socket);
         close_and_free_proxy(proxy);
         return;
     }
