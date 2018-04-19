@@ -298,7 +298,11 @@ static void setup_back_connection(struct proxy* proxy, uint32_t port) {
     back_proxy->other = proxy;
     proxy->other = back_proxy;
     back_proxy->timed_out = false;
-    pipe2(back_proxy->buffer, O_CLOEXEC | O_NONBLOCK);
+    if (pipe2(back_proxy->buffer, O_CLOEXEC | O_NONBLOCK) != 0) {
+        perror("Cannot allocate pipe buffers");
+        close_and_free_proxy(proxy);
+        return;
+    }
     back_proxy->buffer_filled = 0;
     back_proxy->out_op = back_connection_finished;
     back_proxy->in_op = NULL;
@@ -340,7 +344,10 @@ static void first_data(struct proxy* proxy) {
     }
     if (port == config->normal_port && bytes_read > 0) {
         // copy stuff we read to the pipe
-        write(proxy->buffer[WRITE], tmp_buffer, bytes_read);
+        size_t written = 0;
+        while (written < bytes_read) {
+            written += write(proxy->buffer[WRITE], tmp_buffer + written, bytes_read - written);
+        }
         proxy->buffer_filled += bytes_read;
     }
 
@@ -498,7 +505,11 @@ int start(struct config* _config) {
                         data->socket = conn_sock;
                         data->other = NULL;
                         data->timed_out = false;
-                        pipe2(data->buffer, O_CLOEXEC | O_NONBLOCK);
+                        if (pipe2(data->buffer, O_CLOEXEC | O_NONBLOCK) != 0) {
+                            perror("Cannot allocate pipes");
+                            close(conn_sock);
+                            free(data);
+                        }
                         data->buffer_filled = 0;
                         data->out_op = NULL;
                         data->in_op = first_data;
